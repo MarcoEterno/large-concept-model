@@ -1,12 +1,13 @@
 # In this module, we create a wrapper for every LLM,
 # which allows us to easily extract the model probabilities for the next word
 
+from typing import List
+
 import numpy as np
 import torch
 from transformers import GPT2TokenizerFast, GPT2LMHeadModel
-from typing import List, Optional, Dict
 
-from src.config import DEVICE, TOP_K, TOP_P
+from src.config import DEVICE, TOP_K, HIGHER_THAN_P
 from src.utils import timer
 
 
@@ -38,7 +39,7 @@ def get_GPT2_probabilities(encoded_text, model: GPT2LMHeadModel, return_type, de
             return probabilities.topk(TOP_K)
         elif return_type == 'top_p':
             print('top_p')
-            return probabilities[probabilities > TOP_P]
+            return probabilities[probabilities > HIGHER_THAN_P]
         else:
             print('all')
             return probabilities
@@ -78,14 +79,15 @@ def rollout_policy(
         value_added = 0
         new_tokens = 0
 
-        while len(encoded_text['input_ids'][0]) < rollout_max_new_tokens and encoded_text['input_ids'][0][
-            -1] != tokenizer.eos_token_id:
+        while (len(encoded_text['input_ids'][0]) < rollout_max_new_tokens
+               and not encoded_text['input_ids'][0][-1] == tokenizer.eos_token_id):  # attention: eos_token_id is 50256
+            # for GPT2 but could be None for other LLMs, so please use is None instead of == in that case.
             probabilities = get_GPT2_probabilities(encoded_text, model, return_type='all')
             next_token = probabilities.argmax()
-            if(print_sentence):
+            if (print_sentence):
                 print(tokenizer.decode(encoded_text['input_ids'][0]))
             encoded_text['input_ids'] = torch.cat(
-                (encoded_text['input_ids'],torch.tensor([[next_token]], device=DEVICE)),dim=1)
+                (encoded_text['input_ids'], torch.tensor([[next_token]], device=DEVICE)), dim=1)
             encoded_text['attention_mask'] = torch.cat(
                 [encoded_text['attention_mask'], torch.tensor([[1]], device=DEVICE)], dim=-1)
             p = probabilities[0][next_token].cpu().numpy()
@@ -94,9 +96,51 @@ def rollout_policy(
         return value_added, new_tokens
     if modality == "top_p_rollout":
         # Sentence is completed by extracting the next token from the ones with probability > TOP_P
-        pass
+        encoded_text = convert_token_list_for_inference(previous_tokens)
+        value_added = 0
+        new_tokens = 0
+
+        while (len(encoded_text['input_ids'][0]) < rollout_max_new_tokens
+               and not encoded_text['input_ids'][0][-1] == tokenizer.eos_token_id):  # attention: eos_token_id is 50256
+            # for GPT2 but could be None for other LLMs, so please use is None instead of == in that case.
+
+            probabilities = get_GPT2_probabilities(encoded_text, model, return_type='all')
+            next_token = higher_than_p_sampling(probabilities, top_p=HIGHER_THAN_P)
+            if (print_sentence):
+                print(tokenizer.decode(encoded_text['input_ids'][0]))
+            encoded_text['input_ids'] = torch.cat(
+                (encoded_text['input_ids'], torch.tensor([[next_token]], device=DEVICE)), dim=1)
+            encoded_text['attention_mask'] = torch.cat(
+                [encoded_text['attention_mask'], torch.tensor([[1]], device=DEVICE)], dim=-1)
+            p = probabilities[0][next_token].cpu().numpy()
+            value_added -= p * np.log(p)
+            new_tokens += 1
+        return value_added, new_tokens
 
 
+def top_p_sampling(probabilities: torch.Tensor, top_p: float) -> torch.Tensor:
+    """
+    Sample a token from the probabilities with probability mass higher than top_p.
+    Also known as nucleus sampling.
+
+    Args:
+        probabilities (torch.Tensor): The probabilities of the next word.
+        top_p (float): The minimum probability mass to keep.
+
+    Returns:
+        torch.Tensor: The sampled token.
+    """
+    sorted_probabilities, sorted_indices = torch.sort(probabilities, descending=True)
+    cumulative_probabilities = torch.cumsum(sorted_probabilities, dim=-1)
+    sorted_indices_to_remove = cumulative_probabilities > top_p
+    sorted_indices_to_remove[1:] = sorted_indices_to_remove[:-1].clone()
+    sorted_indices_to_remove[0] = False
+    probabilities[sorted_indices[sorted_indices_to_remove]] = 0
+    probabilities /= probabilities.sum()
+    return torch.multinomial(probabilities, 1)
+
+
+@timer
 def convert_token_list_for_inference(token_list: List[int], device: torch.device = DEVICE) -> dict[str, torch.Tensor]:
     """
     Convert a list of tokens to a dictionary of torch tensors for inference.
@@ -122,15 +166,34 @@ def convert_token_list_for_inference(token_list: List[int], device: torch.device
 
 
 if __name__ == "__main__":
-    tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
-    model = GPT2LMHeadModel.from_pretrained("gpt2").to(DEVICE)  # you can bring it to a device here
-    input_text = "basketball is a fun game to play"
-    encoded_input = tokenizer(input_text, return_tensors="pt").to(DEVICE)
-    # print(encoded_input)
-    outputs = model(**encoded_input, output_hidden_states=True, return_dict=True)
-    # print(outputs.logits.shape)
-    # print(get_GPT2_probabilities(encoded_input, model, return_type='all'))
+    def test_top_p_sampling():
+        probabilities = torch.tensor([0.1, 0.2, 0.3, 0.4])
+        print(top_p_sampling(probabilities, 0.71))
 
-    previous_tokens = tokenizer("I like ice").input_ids
-    print(previous_tokens)
-    print(rollout_policy(previous_tokens, model, tokenizer, 100, "greedy_rollout", print_sentence=True))
+        tokens= []
+        for i in range (100):
+            tokens.append(top_p_sampling(probabilities, 0.71))
+
+        #print the frequency of each token
+        print(torch.bincount(torch.cat(tokens)).float() /100)
+
+
+    def test_get_GPT2_probabilities():
+        tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
+        model = GPT2LMHeadModel.from_pretrained("gpt2").to(DEVICE)  # you can bring it to a device here
+        input_text = "basketball is a fun game to play"
+        encoded_input = tokenizer(input_text, return_tensors="pt").to(DEVICE)
+        # print(encoded_input)
+        outputs = model(**encoded_input, output_hidden_states=True, return_dict=True)
+        # print(outputs.logits.shape)
+        # print(get_GPT2_probabilities(encoded_input, model, return_type='all'))
+
+
+    def test_rollout_policy():
+        tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
+        model = GPT2LMHeadModel.from_pretrained("gpt2").to(DEVICE)  # you can bring it to a device here
+        previous_tokens = tokenizer("I like ice").input_ids
+        print(previous_tokens)
+        print(rollout_policy(previous_tokens, model, tokenizer, 100, "top_p_rollout", print_sentence=True))
+
+    test_top_p_sampling()
