@@ -1,6 +1,7 @@
 # Large Concept Models
-An attempt to improve llm performance by using AlphaZero-like Monte Carlo tree search in the space of possible concepts
-with  [JEPA](https://openreview.net/pdf?id=BZ5a1r-kVsf)-type architectures
+An attempt to improve llm performance by using AlphaZero-like Monte Carlo 
+tree search in the space of possible concepts with  
+[JEPA](https://openreview.net/pdf?id=BZ5a1r-kVsf)-type architectures
 
 ## The problems of current autoregressive language models
 Here is a list of current inefficiencies of frontier language models.
@@ -8,14 +9,29 @@ Here is a list of current inefficiencies of frontier language models.
 In fact, the amount of compute is the one of a forward pass of the network.
 2. ### LLMs are stateless
 The only information carried from the generation of a token to the 
-generation of the following tokens is in the generated tokens. So every
-internal state of the model, and any information in the distribution of
-probability over the generated token is lost after a generation and 
-needs to be recalculated every time. This is a potential waste of compute,
-particularly important when the model is not deep enough to arrive to 
+generation of the following tokens is in the generated tokens. 
+So the information regarding the following quantities get lost 
+after every token choice:
+- The internal state of the model (layer activations)
+- The contextual embedding of all the tokens in the context window apart 
+from the last token
+This is a potential waste of compute, as the model has to recompute the 
+same information multiple times. and does not build on its previous computations.
+
+This is particularly important when the model is not deep enough to arrive to 
 the right conclusion in a single forward pass, but would be able to do so in
 few passes.
 3. ### Information is lost when a token is selected
+In fact, the model produces for the token to generate a vector 
+in the embedding space. This vector gets converted to a probability 
+distribution over the vocabulary, and finally single token is sampled 
+from it. So the model is converting the potentially infinite information
+contained in the embedding vector (because the coefficients of the vector 
+are in principle continuous numbers) to a single token.
+
+This is analogous to do a measure in quantum mechanics, and quantum 
+computers taught us that it is exponentially convenient to do all the
+calculations in the rich continuous space and delay the measure as far as possible. 
 
 4. ### LLMs do not backtrack on generated tokens
 5. ### LLMs can not explore the whole generation space
@@ -28,7 +44,8 @@ This problem has partially been addressed by [Mixture of Depths](https://arxiv.o
 architectures, that dynamically allocate compute to tokens based on 
 the difficulty of predicting each token. This cleaver methodology 
 has two main limitations: 
-- **ia**
+- **They are architecture specific**: In fact they are tied to the 
+transformer architecture, which might not be the 
 
 2. ### Statelessness
 Reasoning Tokens: spends compute in figuring out the exact word
