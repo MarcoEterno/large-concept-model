@@ -1,7 +1,8 @@
 # Large Concept Models
 An attempt to improve llm performance by using AlphaZero-like Monte Carlo 
-tree search in the space of possible concepts with  
-[JEPA](https://openreview.net/pdf?id=BZ5a1r-kVsf)-type architectures
+tree search in the space of possible concepts with [JEPA](https://openreview.net/pdf?id=BZ5a1r-kVsf)-type architectures.
+
+![img.png](img.png)
 
 ## The problems of current autoregressive language models
 Here is a list of current inefficiencies of frontier language models.
