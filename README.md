@@ -48,7 +48,7 @@ To do so, we need to build:
 * **A concept encoder**: that takes few words and translates them in a high dimensional vector that represents the concept underlying the words.
 * **A concept decoder**: that takes this concept vector and turns it into words
 * **An autoregressive model on the space of possible concepts**: that given all previous concepts predicts the next one. 
-![image.png](image.png)
+![image.png](reference/image.png)
 *in the Image above, the model is predicting the next concept given the previous ones. The concepts are then decoded into words.*
 
 ### Training procedure

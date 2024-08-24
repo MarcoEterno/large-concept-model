@@ -1,7 +1,7 @@
 from typing import Optional
 
-from src.node import Node
-from innovations.mcts.llm import get_GPT2_probabilities
+from src.innovations.mcts.node import Node
+from src.innovations.mcts.llm import get_GPT2_probabilities
 
 class MCTS:
     def __init__(self, root: Optional[Node] = None, num_inferences: int = 1000, max_timeout: int = 100):

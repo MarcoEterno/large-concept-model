@@ -1,42 +1,35 @@
 # this module takes text or tokens and returns the corresponding concepts
 # for now, the concepts are all the same number of tokens. This is a limitation that will be removed in the future
 
-import warnings
-
-# Suppress all UserWarnings
-warnings.simplefilter('ignore', category=UserWarning)
-
 import numpy as np
+import torch
 from torch.nn import CosineSimilarity
 from transformers import BertTokenizer, BertModel
-import torch
-
-
 
 
 class Encoder:
     def __init__(self, n_tokens_per_concept: int = 5, tokenizer=None, model=None):
         self.n_tokens_per_concept = n_tokens_per_concept
-        self.tokenizer = tokenizer if tokenizer else BertTokenizer.from_pretrained('bert-base-uncased', clean_up_tokenization_spaces=True)
+        self.tokenizer = tokenizer if tokenizer else BertTokenizer.from_pretrained(
+            'bert-base-uncased', clean_up_tokenization_spaces=True)
         self.model = model if model else BertModel.from_pretrained('bert-base-uncased')
 
-    def split_tokens_in_batches(self, tokens, n_tokens_per_concept):
+    def split_tokens_in_batches(self, tokens: list[int], n_tokens_per_concept: int) -> list[list[int]]:
         n_batches = len(tokens) // n_tokens_per_concept
         token_groups = []
         for i in range(n_batches):
             token_groups.append(tokens[i * n_tokens_per_concept:(i + 1) * n_tokens_per_concept])
-        #add last batch
+        # add last batch
         token_groups.append(tokens[n_batches * n_tokens_per_concept:])
         return token_groups
 
-    def encode_tokens_to_concepts(self, tokens, no_grad = True):
+    def encode_tokens_to_concepts(self, tokens: list[int], no_grad=True) -> list[torch.tensor]:
         """
         Encodes a list of tokens into a list of concepts
         :param tokens: torch.tensor of tokens with size [1,n_tokens]
         :param no_grad: if True, the model will not store gradients
         :return: list of concepts with size [n_concepts, n_features_per_concept]
         """
-        n_batches = len(tokens) // self.n_tokens_per_concept
         token_groups = self.split_tokens_in_batches(tokens, self.n_tokens_per_concept)
         concepts = []
         for token_group in token_groups:
@@ -49,11 +42,11 @@ class Encoder:
             concepts.append(concept)
         return concepts
 
-    def encode_text_to_concepts(self, text):
+    def encode_text_to_concepts(self, text: str) -> list[torch.tensor]:
         tokens = self.tokenizer.encode(text, return_tensors='pt')
         return self.encode_tokens_to_concepts(tokens)
 
-    def get_similarity_between_sentences(self, sentence1, sentence2):
+    def get_similarity_between_sentences(self, sentence1: str, sentence2: str) -> np.ndarray:
         concepts1 = self.encode_text_to_concepts(sentence1)
         concepts2 = self.encode_text_to_concepts(sentence2)
         similarity = np.zeros([len(concepts1), len(concepts2)])
@@ -61,21 +54,19 @@ class Encoder:
         for i, concept1 in enumerate(concepts1):
             for j, concept2 in enumerate(concepts2):
                 similarity[i][j] = CosineSimilarity(dim=1)(concept1, concept2).item()
+
         return similarity
 
 
 if __name__ == '__main__':
-
-
-    # Bad practice, but the BertModel is throwing a lot of unhelpful warnings
-    def test_encode_text_to_concepts():
+    def encode_text_to_concepts():
         encoder = Encoder()
         text = "The quick brown fox jumps over the lazy dog."
         concepts = encoder.encode_text_to_concepts(text)
         print(concepts)
 
 
-    def test_get_similarity_between_sentences():
+    def get_similarity_between_sentences():
         encoder = Encoder()
         sentence1 = "The quick brown fox jumps over the lazy dog."
         sentence2 = "The quick brown fox jumps over the lazy cat."
@@ -83,7 +74,7 @@ if __name__ == '__main__':
         print(similarity)
 
 
-    def test_split_tokens_in_batches():
+    def split_tokens_in_batches():
         encoder = Encoder()
         tokens = list(range(100))
         n_tokens_per_concept = 10
@@ -91,21 +82,13 @@ if __name__ == '__main__':
         print(token_groups)
 
 
-    def test_encode_text_to_concepts():
-        encoder = Encoder()
-        text = "The quick brown fox jumps over the lazy dog. I sad so"
-        concepts = encoder.encode_text_to_concepts(text)
-        print(concepts)
-
-
-    def test_encode_tokens_to_concepts():
+    def encode_tokens_to_concepts():
         encoder = Encoder()
         tokens = list(range(100))
         concepts = encoder.encode_tokens_to_concepts(tokens)
         print(len(concepts), concepts[0].shape)
 
-
-    # test_split_tokens_in_batches()
-    # test_encode_tokens_to_concepts()
-    # test_encode_tokens_to_concepts()
-    # test_get_similarity_between_sentences()
+    # split_tokens_in_batches()
+    # encode_tokens_to_concepts()
+    # encode_text_to_concepts()
+    # get_similarity_between_sentences()

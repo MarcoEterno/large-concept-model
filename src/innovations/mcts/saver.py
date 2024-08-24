@@ -1,9 +1,8 @@
 import math
 import pickle
 
+from src.innovations.mcts.mcts import MCTS
 from utils import timer
-from innovations.mcts.mcts import MCTS
-from tictactoe import TicTacToe
 
 """
 This module contains functions to save and load the MCTS tree
@@ -42,7 +41,7 @@ def load_mcts(mcts, num_simulations=None):
             mcts = MCTS(TicTacToe(), num_simulations)
             mcts.build_mcts_tree(print_progress=True)
             return mcts
-            
+
         else:
             # exit the program if the user does not want to build a new tree
             exit(0)

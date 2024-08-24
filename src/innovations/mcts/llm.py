@@ -1,4 +1,5 @@
-# 1)we create a script that taken a LLM, is able to make inference with that llm for the next n tokens,
+# In this module, we create a wrapper for every LLM,
+# which allows us to easily extract the model probabilities for the next word
 
 from typing import List
 
@@ -6,11 +7,12 @@ import numpy as np
 import torch
 from transformers import GPT2TokenizerFast, GPT2LMHeadModel
 
-from src.config import DEVICE, TOP_K, HIGHER_THAN_P
-from src.utils import timer
+from src.model.config import DEVICE, TOP_K, HIGHER_THAN_P
+from src.utils.utils import timer
+
 
 @timer
-def get_llm_probabilities(encoded_text, model, return_type, device=DEVICE):
+def get_GPT2_probabilities(encoded_text, model: GPT2LMHeadModel, return_type, device=DEVICE):
     """
     Get the probabilities of the next word given the input text.
 
@@ -18,7 +20,7 @@ def get_llm_probabilities(encoded_text, model, return_type, device=DEVICE):
         encoded_text (dict): The input text encoded by the tokenizer. It should be a dictionary, with keys:
             - input_ids: The tokens of the text.
             - attention_mask: The attention mask of the text. (all 1)
-        model: The model to use for generating the response.
+        model (GPT2LMHeadModel): The model to use for generating the response.
         return_type (str): The type of return. It can be 'top_k', 'top_p','all' to return the top k probabilities,
             the probabilities higher than TOP_P, or the probabilities for the whole vocabulary.
             never use top k, it is 20x slower than the other methods in our GPT2 preliminary testing.
@@ -80,7 +82,7 @@ def rollout_policy(
         while (len(encoded_text['input_ids'][0]) < rollout_max_new_tokens
                and not encoded_text['input_ids'][0][-1] == tokenizer.eos_token_id):  # attention: eos_token_id is 50256
             # for GPT2 but could be None for other LLMs, so please use is None instead of == in that case.
-            probabilities = get_llm_probabilities(encoded_text, model, return_type='all')
+            probabilities = get_GPT2_probabilities(encoded_text, model, return_type='all')
             next_token = probabilities.argmax()
             if (print_sentence):
                 print(tokenizer.decode(encoded_text['input_ids'][0]))
@@ -102,7 +104,7 @@ def rollout_policy(
                and not encoded_text['input_ids'][0][-1] == tokenizer.eos_token_id):  # attention: eos_token_id is 50256
             # for GPT2 but could be None for other LLMs, so please use is None instead of == in that case.
 
-            probabilities = get_llm_probabilities(encoded_text, model, return_type='all')
+            probabilities = get_GPT2_probabilities(encoded_text, model, return_type='all')
             next_token = higher_than_p_sampling(probabilities, top_p=HIGHER_THAN_P)
             if (print_sentence):
                 print(tokenizer.decode(encoded_text['input_ids'][0]))
@@ -116,7 +118,7 @@ def rollout_policy(
         return value_added, new_tokens
 
 
-def higher_than_p_sampling(probabilities: torch.Tensor, top_p: float) -> torch.Tensor:
+def top_p_sampling(probabilities: torch.Tensor, top_p: float) -> torch.Tensor:
     """
     Sample a token from the probabilities with probability mass higher than top_p.
     Also known as nucleus sampling.
@@ -145,16 +147,11 @@ def convert_token_list_for_inference(token_list: List[int], device: torch.device
 
     Args:
         token_list (List[int]): The list of tokens to convert.
-        device (torch.device): The device to use for the tensors.
 
     Returns:
         dict[str, Tensor]: The dictionary containing the encoded text and the attention mask.
     """
-    # Ensure token_list is a list of integers
-    if isinstance(token_list, list) and all(isinstance(token, int) for token in token_list):
-        input_ids = torch.tensor([token_list], device=device)
-    else:
-        raise ValueError(f"token_list must be a list of integers, but is {token_list}")
+    input_ids = torch.tensor([token_list], device=device)
 
     # Create an attention_mask tensor with the same shape and device
     attention_mask = torch.ones_like(input_ids, device=device)
@@ -168,101 +165,20 @@ def convert_token_list_for_inference(token_list: List[int], device: torch.device
     return inference_dictionary
 
 
-@timer
-def old_get_n_tokens_inference(inputs, model, n_tokens, input_is_encoded=False, device=DEVICE):
-    """
-    Get the next n tokens given the input text.
-
-    Args:
-        inputs: if input_is_encoded = True, The input text encoded by the tokenizer.
-            It should be a dictionary, with keys:
-                - input_ids: The tokens of the text.
-                - attention_mask: The attention mask of the text. (all 1)
-            if input_is_encoded = False, The input text to encode.
-        model: The model to use for generating the response.
-        n_tokens (int): The number of tokens to generate.
-        input_is_encoded (bool): Whether the input is already encoded.
-        device (torch.device): The device to use for the model.
-
-    Returns:
-        List[int]: The generated tokens.
-    """
-    if not input_is_encoded:
-        encoded_inputs = convert_token_list_for_inference(inputs)
-    else:
-        encoded_inputs = inputs
-
-    # avoid saving the gradients to save computation and memory:
-    with torch.no_grad():
-        model.eval()
-        outputs = model.generate(
-            **encoded_inputs,
-            max_length=len(encoded_inputs['input_ids'][0]) + n_tokens,
-            pad_token_id=model.config.pad_token_id,
-            return_dict_in_generate=True
-        )
-        return outputs.sequences[0].cpu().numpy()
-
-def get_n_tokens_inference(
-        previous_tokens: List[int],
-        model,
-        tokenizer,
-        new_tokens_to_generate: int,
-        modality: str,
-        print_sentence: bool = False
-):
-    """
-    Rollout policy to complete a sentence.
-
-    Args:
-        previous_tokens (List[int]): The sentence to complete.
-        model (GPT2LMHeadModel): The model to use for generating the response.
-        tokenizer (GPT2Tokenizer): The tokenizer to use for tokenizing the input.
-        new_tokens_to_generate (int): The maximum number of tokens that generation will last.
-        modality (str): The modality to use for the rollout. It can be 'greedy_rollout' or 'top_p_rollout'.
-
-    Returns:
-        float: the peplexity of the completed sentence
-        int: the number of tokens added to the sentence
-    """
-    if modality == "greedy_rollout":
-        # Sentence is completed by extracting the next token with the highest probability.
-        # This modality makes the model deterministic, so calculating the value multiple times does not improve accuracy
-        encoded_text = convert_token_list_for_inference(previous_tokens)
-        perplexity = 0
-        new_tokens = 0
-
-        while (len(encoded_text['input_ids'][0]) < new_tokens_to_generate
-               and not encoded_text['input_ids'][0][-1] == tokenizer.eos_token_id):  # attention: eos_token_id is 50256
-            # for GPT2 but could be None for other LLMs, so please use is None instead of == in that case.
-            probabilities = get_llm_probabilities(encoded_text, model, return_type='all')
-            next_token = probabilities.argmax()
-            if (print_sentence):
-                print(tokenizer.decode(encoded_text['input_ids'][0]))
-            encoded_text['input_ids'] = torch.cat(
-                (encoded_text['input_ids'], torch.tensor([[next_token]], device=DEVICE)), dim=1)
-            encoded_text['attention_mask'] = torch.cat(
-                [encoded_text['attention_mask'], torch.tensor([[1]], device=DEVICE)], dim=-1)
-            p = probabilities[0][next_token].cpu().numpy()
-            perplexity -= p * np.log(p)
-            new_tokens += 1
-        return new_tokens, perplexity
-
-
 if __name__ == "__main__":
-    def a_test_top_p_sampling():
+    def test_top_p_sampling():
         probabilities = torch.tensor([0.1, 0.2, 0.3, 0.4])
-        print(higher_than_p_sampling(probabilities, 0.71))
+        print(top_p_sampling(probabilities, 0.71))
 
         tokens= []
         for i in range (100):
-            tokens.append(higher_than_p_sampling(probabilities, 0.71))
+            tokens.append(top_p_sampling(probabilities, 0.71))
 
         #print the frequency of each token
         print(torch.bincount(torch.cat(tokens)).float() /100)
 
 
-    def a_test_get_GPT2_probabilities():
+    def test_get_GPT2_probabilities():
         tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
         model = GPT2LMHeadModel.from_pretrained("gpt2").to(DEVICE)  # you can bring it to a device here
         input_text = "basketball is a fun game to play"
@@ -273,25 +189,11 @@ if __name__ == "__main__":
         # print(get_GPT2_probabilities(encoded_input, model, return_type='all'))
 
 
-    def a_test_rollout_policy():
+    def test_rollout_policy():
         tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
         model = GPT2LMHeadModel.from_pretrained("gpt2").to(DEVICE)  # you can bring it to a device here
         previous_tokens = tokenizer("I like ice").input_ids
         print(previous_tokens)
-        print(rollout_policy(previous_tokens, model, tokenizer, 100, "greedy_rollout", print_sentence=True))
+        print(rollout_policy(previous_tokens, model, tokenizer, 100, "top_p_rollout", print_sentence=True))
 
-    def a_test_get_n_tokens_inference():
-        tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
-        model = GPT2LMHeadModel.from_pretrained("gpt2").to(DEVICE)
-        input_text = "basketball is a fun game to play"
-        encoded_input = tokenizer(input_text, return_tensors="pt").to(DEVICE)
-        input_list = tokenizer(input_text).input_ids
-        print(tokenizer.decode(get_n_tokens_inference(
-            encoded_input,
-            model=model,
-            tokenizer=tokenizer,
-            new_tokens_to_generate=10,
-            modality="greedy_rollout"
-        )))
-
-    a_test_get_n_tokens_inference()
+    test_top_p_sampling()
