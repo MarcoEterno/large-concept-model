@@ -5,7 +5,7 @@ from typing import Optional
 import numpy as np
 
 from tictactoe import TicTacToe
-from treenode import Node
+from innovations.mcts.treenode import Node
 from utils import timer
 
 
@@ -125,7 +125,7 @@ class MCTS:
 
 
 if __name__ == "__main__":
-    from saver import save_mcts, load_mcts
+    from innovations.saver import save_mcts, load_mcts
     mcts = MCTS(TicTacToe(), num_simulations=1000000)
     mcts = load_mcts(mcts)
     print(type(mcts))

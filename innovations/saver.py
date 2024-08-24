@@ -2,7 +2,7 @@ import math
 import pickle
 
 from utils import timer
-from mcts import MCTS
+from innovations.mcts.mcts import MCTS
 from tictactoe import TicTacToe
 
 """
