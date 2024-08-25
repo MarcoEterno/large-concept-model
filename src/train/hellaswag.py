@@ -25,33 +25,36 @@ gpt2-xl (1558M)
 The validation set of HellaSwag has a total of 10,042 examples.
 """
 
-import os
 import json
+import os
+
 import requests
 import tiktoken
-from tqdm import tqdm
 import torch
-import torch.nn as nn
 from torch.nn import functional as F
+from tqdm import tqdm
 from transformers import GPT2LMHeadModel
 
-# -----------------------------------------------------------------------------
-DATA_CACHE_DIR = os.path.join(os.path.dirname(__file__), "../../../data/hellaswag")
+from src.model.config import DATA_ROOT_PATH
+
+DATA_CACHE_DIR = os.path.join(DATA_ROOT_PATH, "hellaswag")
+
 
 def download_file(url: str, fname: str, chunk_size=1024):
     """Helper function to download a file from a given url"""
     resp = requests.get(url, stream=True)
     total = int(resp.headers.get("content-length", 0))
     with open(fname, "wb") as file, tqdm(
-        desc=fname,
-        total=total,
-        unit="iB",
-        unit_scale=True,
-        unit_divisor=1024,
+            desc=fname,
+            total=total,
+            unit="iB",
+            unit_scale=True,
+            unit_divisor=1024,
     ) as bar:
         for data in resp.iter_content(chunk_size=chunk_size):
             size = file.write(data)
             bar.update(size)
+
 
 hellaswags = {
     "train": "https://raw.githubusercontent.com/rowanz/hellaswag/master/data/hellaswag_train.jsonl",
@@ -61,6 +64,7 @@ hellaswags = {
 
 enc = tiktoken.get_encoding("gpt2")
 
+
 def download(split):
     """Downloads HellaSwag DATA_CACHE_DIR"""
     os.makedirs(DATA_CACHE_DIR, exist_ok=True)
@@ -69,6 +73,7 @@ def download(split):
     if not os.path.exists(data_filename):
         print(f"Downloading {data_url} to {data_filename}...")
         download_file(data_url, data_filename)
+
 
 def render_example(example):
     """
@@ -94,9 +99,9 @@ def render_example(example):
     tok_rows = []
     mask_rows = []
     for end in endings:
-        end_tokens = enc.encode(" " + end) # note: prepending " " because GPT-2 tokenizer
+        end_tokens = enc.encode(" " + end)  # note: prepending " " because GPT-2 tokenizer
         tok_rows.append(ctx_tokens + end_tokens)
-        mask_rows.append([0]*len(ctx_tokens) + [1]*len(end_tokens))
+        mask_rows.append([0] * len(ctx_tokens) + [1] * len(end_tokens))
         data["ending_tokens"].append(end_tokens)
 
     # have to be careful during the collation because the number of tokens in each row can differ
@@ -109,6 +114,7 @@ def render_example(example):
 
     return data, tokens, mask, label
 
+
 def iterate_examples(split):
     # there are 10,042 examples in total in val
     download(split)
@@ -117,10 +123,10 @@ def iterate_examples(split):
             example = json.loads(line)
             yield example
 
+
 @torch.no_grad()
 def evaluate(model_type, device):
-
-    torch.set_float32_matmul_precision('high') # use tf32
+    torch.set_float32_matmul_precision('high')  # use tf32
     model = GPT2LMHeadModel.from_pretrained(model_type)
     model.to(device)
     # model = torch.compile(model) # optionally torch compile the model
@@ -143,7 +149,7 @@ def evaluate(model_type, device):
         shift_losses = F.cross_entropy(flat_shift_logits, flat_shift_tokens, reduction='none')
         shift_losses = shift_losses.view(tokens.size(0), -1)
         # now get the average loss just for the completion region (where mask == 1), in each row
-        shift_mask = (mask[..., 1:]).contiguous() # we must shift mask, so we start at the last prompt token
+        shift_mask = (mask[..., 1:]).contiguous()  # we must shift mask, so we start at the last prompt token
         masked_shift_losses = shift_losses * shift_mask
         # sum and divide by the number of 1s in the mask
         sum_loss = masked_shift_losses.sum(dim=1)
@@ -157,7 +163,7 @@ def evaluate(model_type, device):
         num_total += 1
         num_correct += int(pred == label)
         num_correct_norm += int(pred_norm == label)
-        print(f"{num_total} acc_norm: {num_correct_norm}/{num_total}={num_correct_norm/num_total:.4f}")
+        print(f"{num_total} acc_norm: {num_correct_norm}/{num_total}={num_correct_norm / num_total:.4f}")
 
         # debug: pretty print a few examples, and the losses in each case
         if num_total < 10:
@@ -168,8 +174,10 @@ def evaluate(model_type, device):
                 print(f"{i} (loss: {avg_loss[i].item():.4f}) {end}")
             print(f"predicted: {pred_norm}, actual: {label}")
 
+
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser()
     parser.add_argument("-m", "--model_type", type=str, default="gpt2", help="the model type to use")
     parser.add_argument("-d", "--device", type=str, default="cuda", help="the device to use")

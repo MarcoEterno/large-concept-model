@@ -1,96 +1,60 @@
-# this module takes text or tokens and returns the corresponding concepts
-# for now, the concepts are all the same number of tokens. This is a limitation that will be removed in the future
-
-import numpy as np
 import torch
-from torch.nn import CosineSimilarity
 from transformers import BertTokenizer, BertModel
 
 
 class Encoder:
-    def __init__(self, n_tokens_per_concept: int = 5, tokenizer=None, model=None):
+    def __init__(self, n_tokens_per_concept: int = 4, tokenizer=None, model=None):
         self.n_tokens_per_concept = n_tokens_per_concept
         self.tokenizer = tokenizer if tokenizer else BertTokenizer.from_pretrained(
             'bert-base-uncased', clean_up_tokenization_spaces=True)
         self.model = model if model else BertModel.from_pretrained('bert-base-uncased')
 
-    def split_tokens_in_batches(self, tokens: list[int], n_tokens_per_concept: int) -> list[list[int]]:
-        n_batches = len(tokens) // n_tokens_per_concept
-        token_groups = []
-        for i in range(n_batches):
-            token_groups.append(tokens[i * n_tokens_per_concept:(i + 1) * n_tokens_per_concept])
-        # add last batch
-        token_groups.append(tokens[n_batches * n_tokens_per_concept:])
-        return token_groups
+    def __call__(self, *args, **kwargs):
+        if len(args) == 1 and isinstance(args[0], str):
+            return self.encode_text(*args, **kwargs)
+        if len(args) == 1 and isinstance(args[0], torch.Tensor):
+            return self.encode_tokens(*args, **kwargs)
 
-    def encode_tokens_to_concepts(self, tokens: list[int], no_grad=True) -> list[torch.tensor]:
-        """
-        Encodes a list of tokens into a list of concepts
-        :param tokens: torch.tensor of tokens with size [1,n_tokens]
-        :param no_grad: if True, the model will not store gradients
-        :return: list of concepts with size [n_concepts, n_features_per_concept]
-        """
-        token_groups = self.split_tokens_in_batches(tokens, self.n_tokens_per_concept)
-        concepts = []
-        for token_group in token_groups:
-            inputs = {'input_ids': token_group}
-            if no_grad:
-                with torch.no_grad():
-                    concept = self.model(**inputs).last_hidden_state.mean(dim=1)
-            else:
-                concept = self.model(**inputs).last_hidden_state.mean(dim=1)
-            concepts.append(concept)
-        return concepts
+    def encode_text(self, text: str) -> torch.Tensor:
+        # tokenize with BERT
+        inputs = self.tokenizer(
+            text,
+            return_tensors='pt',
+            padding=True,
+            pad_to_multiple_of=self.n_tokens_per_concept
+        )
 
-    def encode_text_to_concepts(self, text: str) -> list[torch.tensor]:
-        tokens = self.tokenizer.encode(text, return_tensors='pt')
-        return self.encode_tokens_to_concepts(tokens)
+        return self._encode(inputs)
 
-    def get_similarity_between_sentences(self, sentence1: str, sentence2: str) -> np.ndarray:
-        concepts1 = self.encode_text_to_concepts(sentence1)
-        concepts2 = self.encode_text_to_concepts(sentence2)
-        similarity = np.zeros([len(concepts1), len(concepts2)])
+    def encode_tokens(self, tokens: torch.Tensor) -> torch.Tensor:
+        inputs = {
+            'input_ids': tokens,
+            'token_type_ids': torch.zeros_like(tokens),
+            'attention_mask': torch.ones_like(tokens)
+        }
 
-        for i, concept1 in enumerate(concepts1):
-            for j, concept2 in enumerate(concepts2):
-                similarity[i][j] = CosineSimilarity(dim=1)(concept1, concept2).item()
+        return self._encode(inputs)
 
-        return similarity
+    def _encode(self, inputs: dict[str, torch.Tensor]) -> torch.Tensor:
+        # split tokens into concepts
+        inputs = {k: t.reshape(-1, self.n_tokens_per_concept) for k, t in inputs.items()}
+
+        # encode token groups into concepts
+        return self._encode_tokens_into_concepts(inputs)
+
+    def _encode_tokens_into_concepts(self, inputs: dict[str, torch.Tensor], no_grad=True) -> torch.Tensor:
+        if no_grad:
+            with torch.no_grad():
+                return self.model(**inputs).last_hidden_state.mean(dim=-2)
+        return self.model(**inputs).last_hidden_state.mean(dim=-2)
 
 
 if __name__ == '__main__':
-    def encode_text_to_concepts():
-        encoder = Encoder()
-        text = "The quick brown fox jumps over the lazy dog."
-        concepts = encoder.encode_text_to_concepts(text)
-        print(concepts)
-
-
-    def get_similarity_between_sentences():
-        encoder = Encoder()
-        sentence1 = "The quick brown fox jumps over the lazy dog."
-        sentence2 = "The quick brown fox jumps over the lazy cat."
-        similarity = encoder.get_similarity_between_sentences(sentence1, sentence2)
-        print(similarity)
-
-
-    def split_tokens_in_batches():
-        encoder = Encoder()
-        tokens = list(range(100))
-        n_tokens_per_concept = 10
-        token_groups = encoder.split_tokens_in_batches(tokens, n_tokens_per_concept)
-        print(token_groups)
-
-
-    def encode_tokens_to_concepts():
-        encoder = Encoder()
-        tokens = list(range(100))
-        concepts = encoder.encode_tokens_to_concepts(tokens)
-        print(len(concepts), concepts[0].shape)
-
     encoder = Encoder()
+    text = "The quick brown fox jumps over the lazy dog."
+    concepts = encoder(text)
+    print(concepts)
 
-    # split_tokens_in_batches()
-    # encode_tokens_to_concepts()
-    print(encoder.encode_text_to_concepts("ciao come stai?"))
-    print(encoder.get_similarity_between_sentences("ciao mamma guarda come mi diverto con il karaoke e poi anche l'aeroplano", "ciao come ti senti?"))
+    tokens = torch.tensor([101, 1996, 4248, 2829, 4419, 14523, 2058, 1996, 13971, 3899, 1012, 102])
+    concepts = encoder(text)
+    print(concepts)

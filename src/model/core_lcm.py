@@ -6,8 +6,6 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-from src.innovations.lcm.encoder import Encoder
-
 
 class CausalSelfAttention(nn.Module):
     def __init__(self, config):
@@ -71,16 +69,15 @@ class Block(nn.Module):
 
 
 @dataclass
-class GPTConfig:
-    n_tokens_per_concept = 8
+class LCMConfig:
+    n_tokens_per_concept: int = 8
     block_size: int = 1024 // n_tokens_per_concept  # max sequence length in concept space
     n_layer: int = 12  # number of layers
     n_head: int = 12  # number of heads
     n_embd: int = 768  # embedding dimension
 
 
-class GPT(nn.Module):
-
+class CoreLCM(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
@@ -161,18 +158,3 @@ class GPT(nn.Module):
             print(f"using fused AdamW: {use_fused}")
         optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=(0.9, 0.95), eps=1e-8, fused=use_fused)
         return optimizer
-
-
-class SuperMegaDeathLCM(nn.Module):
-    def __init__(self, config, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.encoder = Encoder(config.n_tokens_per_concept)
-        self.gpt = GPT(config)
-
-    def forward(self, idx: torch.Tensor, targets=None):
-        input_concepts = self.encoder(idx)
-        target_concepts = self.encoder(targets) if targets is not None else None
-        return self.gpt(input_concepts, target_concepts)
-
-    def configure_optimizers(self, weight_decay, learning_rate, device_type):
-        return self.gpt.configure_optimizers(weight_decay, learning_rate, device_type)

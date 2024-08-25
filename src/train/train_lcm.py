@@ -7,9 +7,9 @@ import torch
 from torch.nn import functional as F
 
 from hellaswag import render_example, iterate_examples
-from src.innovations.lcm.core_lcm import GPTConfig, GPT
 from src.model.config import DATA_ROOT_PATH
-from src.model.encoder import Encoder
+from src.model.core_lcm import LCMConfig
+from src.model.lcm import LCM
 
 
 def load_tokens(filename):
@@ -100,8 +100,7 @@ import torch.distributed as dist
 
 
 class Trainer:
-    def __init__(self, model, encoder):
-        self.encoder = encoder
+    def __init__(self, model):
         self.model = model
 
         ddp, ddp_rank, ddp_local_rank, ddp_world_size, master_process, device = self.setup_ddp()
@@ -312,39 +311,41 @@ class Trainer:
                 f.write(f"{step} hella {acc_norm:.4f}\n")
 
     def eval_model_inference(self, step):
-        model.eval()
-        num_return_sequences = 4
-        max_length = 32
-        tokens = enc.encode("Hello, I'm a language model,")
-        tokens = torch.tensor(tokens, dtype=torch.long)
-        tokens = tokens.unsqueeze(0).repeat(num_return_sequences, 1)
-        xgen = tokens.to(device)
-        sample_rng = torch.Generator(device=device)
-        sample_rng.manual_seed(42 + ddp_rank)
-        while xgen.size(1) < max_length:
-            # forward the model to get the logits
-            with torch.no_grad():
-                with torch.autocast(device_type=device_type, dtype=torch.bfloat16):
-                    logits, loss = model(xgen)  # (B, T, vocab_size)
-                # take the logits at the last position
-                logits = logits[:, -1, :]  # (B, vocab_size)
-                # get the probabilities
-                probs = F.softmax(logits, dim=-1)
-                # do top-k sampling of 50 (huggingface pipeline default)
-                # topk_probs here becomes (5, 50), topk_indices is (5, 50)
-                topk_probs, topk_indices = torch.topk(probs, 50, dim=-1)
-                # select a token from the top-k probabilities
-                # note: multinomial does not demand the input to sum to 1
-                ix = torch.multinomial(topk_probs, 1, generator=sample_rng)  # (B, 1)
-                # gather the corresponding indices
-                xcol = torch.gather(topk_indices, -1, ix)  # (B, 1)
-                # append to the sequence
-                xgen = torch.cat((xgen, xcol), dim=1)
-        # print the generated text
-        for i in range(num_return_sequences):
-            tokens = xgen[i, :max_length].tolist()
-            decoded = enc.decode(tokens)
-            print(f"rank {ddp_rank} sample {i}: {decoded}")
+        ...
+        # model.eval()
+        # num_return_sequences = 4
+        # max_length = 32
+        # tokens = enc.encode("Hello, I'm a language model,")
+        # tokens = torch.tensor(tokens, dtype=torch.long)
+        # tokens = tokens.unsqueeze(0).repeat(num_return_sequences, 1)
+        # xgen = tokens.to(device)
+        # sample_rng = torch.Generator(device=device)
+        # sample_rng.manual_seed(42 + ddp_rank)
+        # while xgen.size(1) < max_length:
+        #     # forward the model to get the logits
+        #     with torch.no_grad():
+        #         with torch.autocast(device_type=device_type, dtype=torch.bfloat16):
+        #             logits, loss = model(xgen)  # (B, T, vocab_size)
+        #         # take the logits at the last position
+        #         logits = logits[:, -1, :]  # (B, vocab_size)
+        #         # get the probabilities
+        #         probs = F.softmax(logits, dim=-1)
+        #         # do top-k sampling of 50 (huggingface pipeline default)
+        #         # topk_probs here becomes (5, 50), topk_indices is (5, 50)
+        #         topk_probs, topk_indices = torch.topk(probs, 50, dim=-1)
+        #         # select a token from the top-k probabilities
+        #         # note: multinomial does not demand the input to sum to 1
+        #         ix = torch.multinomial(topk_probs, 1, generator=sample_rng)  # (B, 1)
+        #         # gather the corresponding indices
+        #         xcol = torch.gather(topk_indices, -1, ix)  # (B, 1)
+        #         # append to the sequence
+        #         xgen = torch.cat((xgen, xcol), dim=1)
+        #
+        # # print the generated text
+        # for i in range(num_return_sequences):
+        #     tokens = xgen[i, :max_length].tolist()
+        #     decoded = enc.decode(tokens)
+        #     print(f"rank {ddp_rank} sample {i}: {decoded}")
 
     def optimize_one_step(self, step):
         model.train()
@@ -386,12 +387,9 @@ class Trainer:
 
 
 if __name__ == "__main__":
-    model = GPT(GPTConfig(n_tokens_per_concept=5))
+    model = LCM(LCMConfig(n_tokens_per_concept=5))
+    # model = GPT(GPTConfig())
     # model = GPT.from_pretrained("gpt2") # or init from OpenAI GPT-2
 
-    encoder = Encoder(n_tokens_per_concept=5)
-    # enc = tiktoken.get_encoding("gpt2")
-    # enc = Encoder(n_tokens_per_concept=5)
-
-    trainer = Trainer(model, encoder)
+    trainer = Trainer(model)
     trainer.run()
