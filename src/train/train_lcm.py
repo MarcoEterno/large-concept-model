@@ -1,6 +1,7 @@
 import math
 import os
 import time
+from dataclasses import dataclass
 
 import numpy as np
 import torch
@@ -99,42 +100,60 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
 
 
+@dataclass
+class TrainerConfig:
+    n_tokens_per_concept: int = 4
+    total_batch_size: int = 524288  # 2**19, ~0.5M, in number of tokens
+    B: int = 1 * n_tokens_per_concept  # micro batch size
+    T: int = 1024  # sequence length
+
+    max_lr: float = 6e-4
+    min_lr: float = max_lr * 0.1
+    warmup_steps: int = 715
+    max_steps: int = 19073  # 19,073 steps is ~1 epoch, if data is 10B tokens and batch size 0.5M tokens
+
+    weight_decay: float = 0.1
+    learning_rate: float = 6e-4
+    seed: int = 1337
+
+
 class Trainer:
-    def __init__(self, model):
+    def __init__(self, model, config):
         self.model = model
 
         ddp, ddp_rank, ddp_local_rank, ddp_world_size, master_process, device = self.setup_ddp()
 
         device_type = "cuda" if device.startswith("cuda") else "mps" if torch.backends.mps.is_built() else "cpu"
 
-        torch.manual_seed(1337)
+        torch.manual_seed(config.seed)
         if torch.cuda.is_available():
-            torch.cuda.manual_seed(1337)
+            torch.cuda.manual_seed(config.seed)
 
-        # config
-        n_tokens_per_concept = 4
-        total_batch_size = 524288  # 2**19, ~0.5M, in number of tokens
-        B = 1 * n_tokens_per_concept  # micro batch size
-        T = 1024  # sequence length
-        # C = T / n_tokens_per_concept  # number of concepts
-
-        self.max_lr = 6e-4
-        self.min_lr = self.max_lr * 0.1
-        self.warmup_steps = 715
-        self.max_steps = 19073  # 19,073 steps is ~1 epoch, if data is 10B tokens and batch size 0.5M tokens
-
-        assert total_batch_size % (
-                B * T * ddp_world_size) == 0, "make sure total_batch_size is divisible by B * T * ddp_world_size"
-        grad_accum_steps = total_batch_size // (B * T * ddp_world_size)
+        assert config.total_batch_size % (config.B * config.T * ddp_world_size) == 0, \
+            "make sure total_batch_size is divisible by B * T * ddp_world_size"
+        grad_accum_steps = config.total_batch_size // (config.B * config.T * ddp_world_size)
         if master_process:
-            print(f"total desired batch size: {total_batch_size}")
+            print(f"total desired batch size: {config.total_batch_size}")
             print(f"=> calculated gradient accumulation steps: {grad_accum_steps}")
 
         # data loaders
-        self.train_loader = DataLoaderLite(B=B, T=T, process_rank=ddp_rank, num_processes=ddp_world_size, split="train",
-                                           master_process=master_process)
-        self.val_loader = DataLoaderLite(B=B, T=T, process_rank=ddp_rank, num_processes=ddp_world_size, split="val",
-                                         master_process=master_process)
+        self.train_loader = DataLoaderLite(
+            B=config.B,
+            T=config.T,
+            process_rank=ddp_rank,
+            num_processes=ddp_world_size,
+            split="train",
+            master_process=master_process
+        )
+
+        self.val_loader = DataLoaderLite(
+            B=config.B,
+            T=config.T,
+            process_rank=ddp_rank,
+            num_processes=ddp_world_size,
+            split="val",
+            master_process=master_process
+        )
 
         torch.set_float32_matmul_precision('high')
 
@@ -147,7 +166,11 @@ class Trainer:
             model = DDP(model, device_ids=[ddp_local_rank])
 
         raw_model = model.module if ddp else model  # always contains the "raw" unwrapped model
-        self.optimizer = raw_model.configure_optimizers(weight_decay=0.1, learning_rate=6e-4, device_type=device_type)
+        self.optimizer = raw_model.configure_optimizers(
+            weight_decay=config.weight_decay,
+            learning_rate=config.learning_rate,
+            device_type=device_type
+        )
 
         # create the log directory we will write checkpoints to and log to
         log_dir = os.path.join(DATA_ROOT_PATH, "log")
@@ -168,6 +191,10 @@ class Trainer:
         self.raw_model = raw_model
         self.use_compile = use_compile
         self.grad_accum_steps = grad_accum_steps
+        self.max_lr = config.max_lr
+        self.min_lr = config.min_lr
+        self.warmup_steps = config.warmup_steps
+        self.max_steps = config.max_steps
 
     def setup_ddp(self):
         # set up DDP (distributed data parallel).
@@ -391,5 +418,5 @@ if __name__ == "__main__":
     # model = GPT(GPTConfig())
     # model = GPT.from_pretrained("gpt2") # or init from OpenAI GPT-2
 
-    trainer = Trainer(model)
+    trainer = Trainer(model, TrainerConfig())
     trainer.run()
