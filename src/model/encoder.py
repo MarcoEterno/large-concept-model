@@ -26,9 +26,13 @@ class Encoder:
     def encode_tokens_to_concepts(self, tokens: list[int], no_grad=True) -> list[torch.tensor]:
         """
         Encodes a list of tokens into a list of concepts
-        :param tokens: torch.tensor of tokens with size [1,n_tokens]
-        :param no_grad: if True, the model will not store gradients
-        :return: list of concepts with size [n_concepts, n_features_per_concept]
+
+        Args:
+            tokens (list[int]): The list of tokens to encode
+            no_grad (bool): Whether to use torch.no_grad() or not
+
+        Returns:
+            list[torch.tensor]: The list of concepts
         """
         token_groups = self.split_tokens_in_batches(tokens, self.n_tokens_per_concept)
         concepts = []

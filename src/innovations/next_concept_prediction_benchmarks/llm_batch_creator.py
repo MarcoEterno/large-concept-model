@@ -1,11 +1,9 @@
 import numpy as np
-from collections import defaultdict
 import torch
 from transformers import GPT2TokenizerFast, GPT2LMHeadModel
 
 from src.model.config import DEVICE, TOP_K, HIGHER_THAN_P
 from src.utils.utils import timer
-
 
 
 @timer
@@ -38,6 +36,7 @@ def get_llm_probabilities(encoded_text, model, return_type, device=DEVICE):
         else:
             return probabilities
 
+
 def get_n_tokens_inference(
         encoded_text: dict[str, torch.Tensor],
         model,
@@ -67,7 +66,8 @@ def get_n_tokens_inference(
         new_tokens = 0
 
         while new_tokens < new_tokens_to_generate:
-              # and not encoded_text['input_ids'][0][-1] == tokenizer.eos_token_id):  # attention: eos_token_id is 50256
+            print(new_tokens)
+            # and not encoded_text['input_ids'][0][-1] == tokenizer.eos_token_id):  # attention: eos_token_id is 50256
             # for GPT2 but could be None for other LLMs, so please use is None instead of == in that case.
             probabilities = get_llm_probabilities(encoded_text, model, return_type='all')
             next_token = probabilities.argmax()
@@ -82,14 +82,14 @@ def get_n_tokens_inference(
             new_tokens += 1
         return encoded_text["input_ids"][0][-new_tokens_to_generate:-1], perplexity
 
-if __name__ == "__main__":
 
+if __name__ == "__main__":
     def a_test_get_n_tokens_inference():
         tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
         model = GPT2LMHeadModel.from_pretrained("gpt2").to(DEVICE)
         input_text = "basketball is a fun game to"
         encoded_input = tokenizer(input_text, return_tensors="pt").to(DEVICE)
-        tokens, perplexity  = get_n_tokens_inference(
+        tokens, perplexity = get_n_tokens_inference(
             encoded_input,
             model=model,
             tokenizer=tokenizer,
