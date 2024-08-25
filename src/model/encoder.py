@@ -88,7 +88,9 @@ if __name__ == '__main__':
         concepts = encoder.encode_tokens_to_concepts(tokens)
         print(len(concepts), concepts[0].shape)
 
+    encoder = Encoder()
+
     # split_tokens_in_batches()
     # encode_tokens_to_concepts()
-    # encode_text_to_concepts()
-    # get_similarity_between_sentences()
+    print(encoder.encode_text_to_concepts("ciao come stai?"))
+    print(encoder.get_similarity_between_sentences("ciao mamma guarda come mi diverto con il karaoke e poi anche l'aeroplano", "ciao come ti senti?"))

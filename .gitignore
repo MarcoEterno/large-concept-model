@@ -1,6 +1,6 @@
 .idea/
 .DS_Store
-.data/
+data/
 karpaty_gpt2/
 
 # Byte-compiled / optimized / DLL files

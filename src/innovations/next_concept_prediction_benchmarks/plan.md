@@ -1,4 +1,4 @@
-# how do we demonstrate the advantage of the LCM architecture wrt LLMs?
+# how do we demonstrate the advantage of the LCM architecture with LLMs?
 
 Plan:
 - [ ] Create a BERT model that takes in input some text (str) and outputs concepts in a vector of dim D.
