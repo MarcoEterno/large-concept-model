@@ -1,15 +1,17 @@
 import torch
+from torch import nn
 from transformers import BertTokenizer, BertModel
 
 
-class Encoder:
-    def __init__(self, n_tokens_per_concept: int = 4, tokenizer=None, model=None):
+class Encoder(nn.Module):
+    def __init__(self, n_tokens_per_concept: int, tokenizer=None, model=None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.n_tokens_per_concept = n_tokens_per_concept
         self.tokenizer = tokenizer if tokenizer else BertTokenizer.from_pretrained(
             'bert-base-uncased', clean_up_tokenization_spaces=True)
         self.model = model if model else BertModel.from_pretrained('bert-base-uncased')
 
-    def __call__(self, *args, **kwargs):
+    def forward(self, *args, **kwargs):
         if len(args) == 1 and isinstance(args[0], str):
             return self.encode_text(*args, **kwargs)
         if len(args) == 1 and isinstance(args[0], torch.Tensor):
@@ -36,25 +38,30 @@ class Encoder:
         return self._encode(inputs)
 
     def _encode(self, inputs: dict[str, torch.Tensor]) -> torch.Tensor:
+        original_shape = inputs['input_ids'].shape
+
         # split tokens into concepts
         inputs = {k: t.reshape(-1, self.n_tokens_per_concept) for k, t in inputs.items()}
 
         # encode token groups into concepts
-        return self._encode_tokens_into_concepts(inputs)
+        return self._encode_tokens_into_concepts(inputs, original_shape=original_shape)
 
-    def _encode_tokens_into_concepts(self, inputs: dict[str, torch.Tensor], no_grad=True) -> torch.Tensor:
+    def _encode_tokens_into_concepts(self, inputs: dict[str, torch.Tensor], original_shape, no_grad=True) -> torch.Tensor:
         if no_grad:
             with torch.no_grad():
-                return self.model(**inputs).last_hidden_state.mean(dim=-2)
-        return self.model(**inputs).last_hidden_state.mean(dim=-2)
+                output = self.model(**inputs).last_hidden_state.mean(dim=-2)
+        else:
+            output = self.model(**inputs).last_hidden_state.mean(dim=-2)
+
+        return output.reshape(*original_shape[:-1], -1, output.shape[-1])
 
 
 if __name__ == '__main__':
-    encoder = Encoder()
+    encoder = Encoder(n_tokens_per_concept=4)
     text = "The quick brown fox jumps over the lazy dog."
     concepts = encoder(text)
     print(concepts)
 
-    tokens = torch.tensor([101, 1996, 4248, 2829, 4419, 14523, 2058, 1996, 13971, 3899, 1012, 102])
-    concepts = encoder(text)
+    tokens = torch.tensor([[101, 1996, 4248, 2829, 4419, 14523, 2058, 1996, 13971, 3899, 1012, 102]])
+    concepts = encoder(tokens)
     print(concepts)

@@ -1,11 +1,14 @@
 import os
+from pathlib import Path
 
 import dotenv
 import torch
 
 dotenv.load_dotenv()
 
-DATA_ROOT_PATH = os.environ["DATA_ROOT_PATH"]
+DATA_ROOT_PATH = os.getenv("DATA_ROOT_PATH", str(Path(__file__).parents[2] / "data"))
+N_TOKENS_PER_CONCEPT = 8
+
 DEVICE = 'mps' if torch.backends.mps.is_built() else 'cuda' if torch.cuda.is_available() else 'cpu'
 TOP_K = 5
 HIGHER_THAN_P = 0.05  # tokens with probability less than this will be discarded.

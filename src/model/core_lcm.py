@@ -6,6 +6,8 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
+from src.model.config import N_TOKENS_PER_CONCEPT
+
 
 class CausalSelfAttention(nn.Module):
     def __init__(self, config):
@@ -70,8 +72,8 @@ class Block(nn.Module):
 
 @dataclass
 class LCMConfig:
-    n_tokens_per_concept: int = 8
-    block_size: int = 1024 // n_tokens_per_concept  # max sequence length in concept space
+    n_tokens_per_concept: int = N_TOKENS_PER_CONCEPT  # number of tokens per concept
+    block_size: int = 1024 // N_TOKENS_PER_CONCEPT  # max sequence length in concept space
     n_layer: int = 12  # number of layers
     n_head: int = 12  # number of heads
     n_embd: int = 768  # embedding dimension
@@ -124,7 +126,7 @@ class CoreLCM(nn.Module):
         x = self.transformer.ln_f(x)  # (B, C, n_embd)
         loss = None
         if targets is not None:  # (B, 1, n_embd)
-            loss = 1 - F.cosine_similarity(x.view(-1, x.size(-1)), targets.view(-1))
+            loss = 1 - F.cosine_similarity(x, targets, dim=-1).mean()
         return x, loss
 
     @classmethod
