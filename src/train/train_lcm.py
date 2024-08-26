@@ -8,7 +8,7 @@ import torch
 from torch.nn import functional as F
 
 from hellaswag import render_example, iterate_examples
-from src.model.config import DATA_ROOT_PATH
+from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT
 from src.model.core_lcm import LCMConfig
 from src.model.lcm import LCM
 
@@ -102,10 +102,14 @@ import torch.distributed as dist
 
 @dataclass
 class TrainerConfig:
-    n_tokens_per_concept: int = 4
     total_batch_size: int = 524288  # 2**19, ~0.5M, in number of tokens
-    B: int = 1 * n_tokens_per_concept  # micro batch size
+    B: int = 1 * N_TOKENS_PER_CONCEPT  # micro batch size
     T: int = 1024  # sequence length
+
+    eval_freq = 250
+    eval_hellaswag_freq = 250
+    eval_model_inference_freq = 250
+    checkpoint_freq = 500
 
     max_lr: float = 6e-4
     min_lr: float = max_lr * 0.1
@@ -195,6 +199,10 @@ class Trainer:
         self.min_lr = config.min_lr
         self.warmup_steps = config.warmup_steps
         self.max_steps = config.max_steps
+        self.eval_freq = config.eval_freq
+        self.eval_hellaswag_freq = config.eval_hellaswag_freq
+        self.eval_model_inference_freq = config.eval_model_inference_freq
+        self.checkpoint_freq = config.checkpoint_freq
 
     def setup_ddp(self):
         # set up DDP (distributed data parallel).
@@ -245,16 +253,16 @@ class Trainer:
             last_step = (step == self.max_steps - 1)
 
             # once in a while evaluate our validation loss
-            if step % 250 == 0 or last_step:
+            if step % self.eval_freq == 0 or last_step:
                 self.eval(step, last_step)
 
-            # once in a while evaluate hellaswag
-            if (step % 250 == 0 or last_step) and (not self.use_compile):
-                self.eval_hellaswag(step)
-
-            # once in a while generate from the model (except step 0, which is noise)
-            if ((step > 0 and step % 250 == 0) or last_step) and (not self.use_compile):
-                self.eval_model_inference(step)
+            # # once in a while evaluate hellaswag
+            # if (step % self.eval_hellaswag_freq == 0 or last_step) and (not self.use_compile):
+            #     self.eval_hellaswag(step)
+            #
+            # # once in a while generate from the model (except step 0, which is noise)
+            # if ((step > 0 and step % self.eval_model_inference_freq == 0) or last_step) and (not self.use_compile):
+            #     self.eval_model_inference(step)
 
             # do one step of the optimization
             loss_accum, lr, norm = self.optimize_one_step(step)  # return just to print
@@ -292,7 +300,7 @@ class Trainer:
             print(f"validation loss: {val_loss_accum.item():.4f}")
             with open(self.log_file, "a") as f:
                 f.write(f"{step} val {val_loss_accum.item():.4f}\n")
-            if step > 0 and (step % 5000 == 0 or last_step):
+            if step > 0 and (step % self.eval_model_inference_freq == 0 or last_step):
                 # optionally write model checkpoints
                 checkpoint_path = os.path.join(self.log_dir, f"model_{step:05d}.pt")
                 checkpoint = {
@@ -414,7 +422,7 @@ class Trainer:
 
 
 if __name__ == "__main__":
-    model = LCM(LCMConfig(n_tokens_per_concept=5))
+    model = LCM(LCMConfig())
     # model = GPT(GPTConfig())
     # model = GPT.from_pretrained("gpt2") # or init from OpenAI GPT-2
 
