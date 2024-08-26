@@ -8,6 +8,7 @@ from src.model.encoder import Encoder
 class LCM(nn.Module):
     def __init__(self, config, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.config = config
         self.encoder = Encoder(config.n_tokens_per_concept)
         self.core = CoreLCM(config)
 

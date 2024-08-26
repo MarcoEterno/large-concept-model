@@ -300,7 +300,7 @@ class Trainer:
             print(f"validation loss: {val_loss_accum.item():.4f}")
             with open(self.log_file, "a") as f:
                 f.write(f"{step} val {val_loss_accum.item():.4f}\n")
-            if step > 0 and (step % self.eval_model_inference_freq == 0 or last_step):
+            if step > 0 and (step % self.checkpoint_freq == 0 or last_step):
                 # optionally write model checkpoints
                 checkpoint_path = os.path.join(self.log_dir, f"model_{step:05d}.pt")
                 checkpoint = {
