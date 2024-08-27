@@ -16,6 +16,9 @@ class Encoder(nn.Module):
             return self.encode_text(*args, **kwargs)
         if len(args) == 1 and isinstance(args[0], torch.Tensor):
             return self.encode_tokens(*args, **kwargs)
+        if len(args) == 1 and isinstance(args[0], list):
+            a0, *args = args
+            return torch.concat([self.forward(x, *args, **kwargs) for x in a0], dim=0)
 
     def encode_text(self, text: str) -> torch.Tensor:
         # tokenize with BERT

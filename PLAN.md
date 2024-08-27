@@ -6,7 +6,7 @@ Plan:
       This LLM has no tokenizer, no embedding, but positional embedding.
 - [x] BERTize training text, define loss in concept space (cosine similarity).
 - [x] Choose model size for LLM (GPT2 or smaller - we need to win) and LCM (124M params).
-- [ ] Train LCM.
+- [x] Train LCM.
 - [ ] Train LLM.
 - [ ] Benchmark loss LCM vs LLM + BERT.
 
