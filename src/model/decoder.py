@@ -16,6 +16,7 @@ class Decoder(nn.Module):
         self.transformer = nn.ModuleDict(dict(
             wte=nn.Embedding(config.vocab_size, config.n_embd),
             wpe=nn.Embedding(config.block_size, config.n_embd),
+            cpe=nn.Embedding(config.block_size, config.n_embd),
             h=nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
             ln_f=nn.LayerNorm(config.n_embd),
         ))
@@ -38,15 +39,27 @@ class Decoder(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, targets=None):
-        # input_concepts is of shape (B, T)
-        B, T = idx.size()
+    def forward(self, concepts, tokens, targets=None):
+        # tokens (B, T) are to embed
+        B, T = tokens.size()
         assert T <= self.config.block_size, f"Cannot forward sequence of length {T}, block size is only {self.config.block_size}"
         # forward the token and posisition embeddings
-        pos = torch.arange(0, T, dtype=torch.long, device=idx.device)  # shape (T)
+        pos = torch.arange(0, T, dtype=torch.long, device=tokens.device)  # shape (T)
         pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (T, n_embd)
-        tok_emb = self.transformer.wte(idx)  # token embeddings of shape (B, T, n_embd)
-        x = tok_emb + pos_emb
+        tok_emb = self.transformer.wte(tokens)  # token embeddings of shape (B, T, n_embd)
+        xt = tok_emb + pos_emb
+
+        # concepts (B, C, D) are vectors
+        B, C, D = concepts.size()
+        assert C <= self.config.block_size, f"Cannot forward sequence of concepts of length {C}, block size is only {self.config.block_size}"
+        # forward the token and posisition embeddings
+        pos = torch.arange(0, C, dtype=torch.long, device=tokens.device)  # shape (C)
+        pos_emb = self.transformer.cpe(pos)  # position embeddings of shape (C, n_embd)
+        xc = concepts + pos_emb
+
+        # concatenate the concepts and tokens
+        x = torch.cat([xc, xt], dim=1)  # (B, C + T, D)
+
         # forward the blocks of the transformer
         for block in self.transformer.h:
             x = block(x)
