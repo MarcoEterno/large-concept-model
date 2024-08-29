@@ -8,8 +8,7 @@ import torch
 from torch.nn import functional as F
 
 from hellaswag import render_example, iterate_examples
-from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT
-from src.model.core_lcm import LCMConfig
+from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT, LCMConfig
 from src.model.lcm import LCM
 
 
@@ -290,10 +289,11 @@ class Trainer:
             for _ in range(val_loss_steps):
                 x, y = self.val_loader.next_batch()
                 x, y = x.to(self.device), y.to(self.device)
-                with torch.autocast(device_type=self.device_type, dtype=torch.bfloat16):
+                with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
                     logits, loss = model(x, y)
                 loss = loss / val_loss_steps
                 val_loss_accum += loss.detach()
+
         if self.ddp:
             dist.all_reduce(val_loss_accum, op=dist.ReduceOp.AVG)
         if self.master_process:
@@ -326,7 +326,7 @@ class Trainer:
             mask = mask.to(self.device)
             # get the logits
             with torch.no_grad():
-                with torch.autocast(device_type=self.device_type, dtype=torch.bfloat16):
+                with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
                     logits, loss = model(tokens)
                 pred_norm = get_most_likely_row(tokens, mask, logits)
             num_total += 1
@@ -387,6 +387,7 @@ class Trainer:
         self.optimizer.zero_grad()
         loss_accum = 0.0
         for micro_step in range(self.grad_accum_steps):
+            print('.', end='', flush=True)
             x, y = self.train_loader.next_batch()
             x, y = x.to(self.device), y.to(self.device)
 
@@ -394,7 +395,7 @@ class Trainer:
             if self.ddp:
                 model.require_backward_grad_sync = (micro_step == self.grad_accum_steps - 1)
 
-            with torch.autocast(device_type=self.device_type, dtype=torch.bfloat16):
+            with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
                 logits, loss = model(x, y)
 
             # we have to scale the loss to account for gradient accumulation,
@@ -405,6 +406,7 @@ class Trainer:
             loss_accum += loss.detach()
             loss.backward()
 
+        print()
         if self.ddp:
             dist.all_reduce(loss_accum, op=dist.ReduceOp.AVG)
 

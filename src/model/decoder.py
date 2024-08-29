@@ -1,24 +1,14 @@
 import inspect
-from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
+from src.model.gpt import GPTConfig, GPT
 from src.model.gpt_block import Block
 
 
-@dataclass
-class GPTConfig:
-    block_size: int = 1024  # max sequence length
-    vocab_size: int = 50257  # number of tokens: 50,000 BPE merges + 256 bytes tokens + 1 <|endoftext|> token
-    n_layer: int = 12  # number of layers
-    n_head: int = 12  # number of heads
-    n_embd: int = 768  # embedding dimension
-
-
-class GPT(nn.Module):
-
+class Decoder(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config

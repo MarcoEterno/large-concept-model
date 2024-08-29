@@ -12,6 +12,14 @@ class Encoder(nn.Module):
         self.model = model if model else BertModel.from_pretrained('bert-base-uncased')
 
     def forward(self, *args, **kwargs):
+        """
+        Accepts input in the form of a string, a list of strings, or a tensor of tokens (batched or not).
+
+        - If a string is passed, it will be tokenized and encoded into concepts.
+        - If a list of strings is passed, each string will be tokenized separately and encoded into concepts,
+            with the results concatenated into a single tensor.
+        - If a tensor of tokens is passed, it will be encoded into concepts.
+        """
         if len(args) == 1 and isinstance(args[0], str):
             return self.encode_text(*args, **kwargs)
         if len(args) == 1 and isinstance(args[0], torch.Tensor):
@@ -32,10 +40,18 @@ class Encoder(nn.Module):
         return self._encode(inputs)
 
     def encode_tokens(self, tokens: torch.Tensor) -> torch.Tensor:
+        # Ensure tokens have at least 2 dimensions
+        if tokens.dim() == 1:
+            tokens = tokens.unsqueeze(0)
+
+        # pad input to multiple of n_tokens_per_concept
+        n_pad = (- tokens.shape[-1]) % self.n_tokens_per_concept
+        padding_tensor = torch.ones(*tokens.shape[:-1], n_pad, dtype=tokens.dtype, device=tokens.device)
+
         inputs = {
-            'input_ids': tokens,
-            'token_type_ids': torch.zeros_like(tokens),
-            'attention_mask': torch.ones_like(tokens)
+            'input_ids': torch.cat([tokens, self.tokenizer.pad_token_id * padding_tensor], dim=-1),
+            'token_type_ids': torch.cat([torch.zeros_like(tokens), 0 * padding_tensor], dim=-1),
+            'attention_mask': torch.cat([torch.ones_like(tokens), 0 * padding_tensor], dim=-1),
         }
 
         return self._encode(inputs)
@@ -49,7 +65,8 @@ class Encoder(nn.Module):
         # encode token groups into concepts
         return self._encode_tokens_into_concepts(inputs, original_shape=original_shape)
 
-    def _encode_tokens_into_concepts(self, inputs: dict[str, torch.Tensor], original_shape, no_grad=True) -> torch.Tensor:
+    def _encode_tokens_into_concepts(
+            self, inputs: dict[str, torch.Tensor], original_shape, no_grad=True) -> torch.Tensor:
         if no_grad:
             with torch.no_grad():
                 output = self.model(**inputs).last_hidden_state.mean(dim=-2)
