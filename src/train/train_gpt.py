@@ -8,8 +8,8 @@ import torch
 from torch.nn import functional as F
 
 from hellaswag import render_example, iterate_examples
-from src.model.config import DATA_ROOT_PATH
-from src.model.gpt import GPT, GPTConfig
+from src.model.config import DATA_ROOT_PATH, GPTConfig
+from src.model.gpt import GPT
 
 
 def load_tokens(filename):

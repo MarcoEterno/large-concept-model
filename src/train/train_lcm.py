@@ -8,7 +8,7 @@ import torch
 from torch.nn import functional as F
 
 from hellaswag import render_example, iterate_examples
-from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT, LCMConfig
+from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT, CoreLCMConfig
 from src.model.lcm import LCM
 
 
@@ -424,7 +424,7 @@ class Trainer:
 
 
 if __name__ == "__main__":
-    model = LCM(LCMConfig())
+    model = LCM(CoreLCMConfig())
     # model = GPT(GPTConfig())
     # model = GPT.from_pretrained("gpt2") # or init from OpenAI GPT-2
 
