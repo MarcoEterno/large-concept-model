@@ -37,9 +37,13 @@ class Encoder(nn.Module):
             pad_to_multiple_of=self.n_tokens_per_concept
         )
 
+        inputs = inputs.to(self.model.device)
+
         return self._encode(inputs)
 
     def encode_tokens(self, tokens: torch.Tensor) -> torch.Tensor:
+        tokens = tokens.to(self.model.device)
+
         # Ensure tokens have at least 2 dimensions
         if tokens.dim() == 1:
             tokens = tokens.unsqueeze(0)
@@ -65,8 +69,8 @@ class Encoder(nn.Module):
         # encode token groups into concepts
         return self._encode_tokens_into_concepts(inputs, original_shape=original_shape)
 
-    def _encode_tokens_into_concepts(
-            self, inputs: dict[str, torch.Tensor], original_shape, no_grad=True) -> torch.Tensor:
+    def _encode_tokens_into_concepts(self, inputs: dict[str, torch.Tensor], original_shape,
+                                     no_grad=True) -> torch.Tensor:
         if no_grad:
             with torch.no_grad():
                 output = self.model(**inputs).last_hidden_state.mean(dim=-2)

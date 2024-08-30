@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-from src.model.gpt import GPTConfig, GPT
+from src.model.config import DecoderConfig
 from src.model.gpt_block import Block
 
 
@@ -24,6 +24,7 @@ class Decoder(nn.Module):
 
         # weight sharing scheme
         self.transformer.wte.weight = self.lm_head.weight
+        self.transformer.cpe.weight = self.lm_head.weight
 
         # init params
         self.apply(self._init_weights)
@@ -88,11 +89,12 @@ class Decoder(nn.Module):
         config_args['vocab_size'] = 50257  # always 50257 for GPT model checkpoints
         config_args['block_size'] = 1024  # always 1024 for GPT model checkpoints
         # create a from-scratch initialized minGPT model
-        config = GPTConfig(**config_args)
-        model = GPT(config)
+        config = DecoderConfig(**config_args)
+        model = Decoder(config)
         sd = model.state_dict()
         sd_keys = sd.keys()
         sd_keys = [k for k in sd_keys if not k.endswith('.attn.bias')]  # discard this mask / buffer, not a param
+        sd_keys = [k for k in sd_keys if not k.endswith('transformer.cpe.weight')]  # cpe is not available
 
         # init a huggingface/transformers model
         model_hf = GPT2LMHeadModel.from_pretrained(model_type)
@@ -117,6 +119,9 @@ class Decoder(nn.Module):
                 assert sd_hf[k].shape == sd[k].shape
                 with torch.no_grad():
                     sd[k].copy_(sd_hf[k])
+
+        # copy the embeddings for concept positional encoding
+        sd['transformer.cpe.weight'].copy_(sd['transformer.wte.weight'])
 
         return model
 
