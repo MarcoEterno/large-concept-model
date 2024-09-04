@@ -53,9 +53,9 @@ class Encoder(nn.Module):
         padding_tensor = torch.ones(*tokens.shape[:-1], n_pad, dtype=tokens.dtype, device=tokens.device)
 
         inputs = {
-            'input_ids': torch.cat([tokens, self.tokenizer.pad_token_id * padding_tensor], dim=-1),
-            'token_type_ids': torch.cat([torch.zeros_like(tokens), 0 * padding_tensor], dim=-1),
-            'attention_mask': torch.cat([torch.ones_like(tokens), 0 * padding_tensor], dim=-1),
+            'input_ids': torch.cat([tokens, self.tokenizer.pad_token_id * padding_tensor], dim=-1).long(),
+            'token_type_ids': torch.cat([torch.zeros_like(tokens), 0 * padding_tensor], dim=-1).long(),
+            'attention_mask': torch.cat([torch.ones_like(tokens), 0 * padding_tensor], dim=-1).long(),
         }
 
         return self._encode(inputs)
