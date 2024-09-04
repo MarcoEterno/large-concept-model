@@ -5,7 +5,7 @@ import tiktoken
 import torch
 import torch.nn.functional as F
 
-from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT
+from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT, DEVICE
 from src.model.encoder import Encoder
 from src.model.gpt import GPT
 
@@ -61,12 +61,12 @@ class DataLoaderLite:
 
 
 def generate_n_tokens(model, inputs: torch.Tensor, num_tokens: int):
-    xgen = inputs
+    xgen = inputs.to(DEVICE)
     for _ in range(num_tokens):
         # forward the model to get the logits
         with torch.no_grad():
-            with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
-                logits, loss = model(xgen)  # (B, T, vocab_size)
+            # with torch.autocast(device_type="cpu", dtype=torch.bfloat16): # use bfloat16 for inference, not on mps
+            logits, loss = model(xgen)  # (B, T, vocab_size)
 
             # take the logits at the last position
             logits = logits[:, -1, :]  # (B, vocab_size)
@@ -88,7 +88,7 @@ def generate_n_tokens(model, inputs: torch.Tensor, num_tokens: int):
 # define parameters
 B = 1  # micro batch size
 T = 128 # 1024  # sequence length
-device = "cpu"
+device = "mps" if torch.backends.mps.is_built() else "cuda" if torch.cuda.is_available() else "cpu"
 
 # define models
 val_loader = DataLoaderLite(B=B, T=T, n_tokens_per_concept=N_TOKENS_PER_CONCEPT, split="val")
