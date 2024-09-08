@@ -1,12 +1,14 @@
 import os
 from dataclasses import dataclass
+from datetime import datetime
 
 import torch
 from torch.distributed import init_process_group
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
 
-from src.model.config import N_TOKENS_PER_CONCEPT
+from src.model.config import N_TOKENS_PER_CONCEPT, DATA_ROOT_PATH
+
 
 @dataclass
 class TrainerConfig:
@@ -27,6 +29,8 @@ class TrainerConfig:
     weight_decay: float = 0.1
     learning_rate: float = 1e-3 # 6e-4 is the default for GPT-2
     seed: int = 1337
+
+    use_compile: bool = False
 
 
 def setup_ddp(self):
@@ -58,3 +62,12 @@ def setup_ddp(self):
         print(f"using device: {device}")
 
     return ddp, ddp_rank, ddp_local_rank, ddp_world_size, master_process, device
+
+def create_log_file_and_dir(self):
+    log_dir = os.path.join(DATA_ROOT_PATH, "log")
+    os.makedirs(log_dir, exist_ok=True)
+    # call the log file as the current time
+    log_file = os.path.join(log_dir, f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log")
+    with open(log_file, "w") as f:  # open for writing to clear the file
+        pass
+    return log_file, log_dir

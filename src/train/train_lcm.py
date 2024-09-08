@@ -12,7 +12,7 @@ from src.benchmark.evaluate_gpt_bert import targets
 from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT, CoreLCMConfig
 from src.model.lcm import LCM
 from src.model.decoder import DecoderConfig
-from src.train.train_config import TrainerConfig, setup_ddp
+from src.train.train_config import TrainerConfig, setup_ddp, create_log_file_and_dir
 from src.train.data_loader import DataLoaderLite
 # -----------------------------------------------------------------------------
 # simple launch:
@@ -40,10 +40,10 @@ class Trainer:
 
         assert config.total_batch_size % (config.B * config.T * self.ddp_world_size) == 0, \
             "make sure total_batch_size is divisible by B * T * ddp_world_size"
-        grad_accum_steps = config.total_batch_size // (config.B * config.T * self.ddp_world_size)
+        self.grad_accum_steps = config.total_batch_size // (config.B * config.T * self.ddp_world_size)
         if self.master_process:
             print(f"total desired batch size: {config.total_batch_size}")
-            print(f"=> calculated gradient accumulation steps: {grad_accum_steps}")
+            print(f"=> calculated gradient accumulation steps: {self.grad_accum_steps}")
 
         # data loaders
         self.train_loader = DataLoaderLite(
@@ -67,32 +67,20 @@ class Trainer:
         # create model
         torch.set_float32_matmul_precision('high')
         model.to(self.device)
-        use_compile = False  # torch.compile interferes with HellaSwag eval and Generation. TODO fix
-        if use_compile:
+        self.use_compile = config.use_compile # torch.compile interferes with HellaSwag eval and Generation. TODO fix
+        if self.use_compile:
             model = torch.compile(model)
         if self.ddp:
             model = DDP(model, device_ids=[self.ddp_local_rank])
 
-        raw_model = model.module if self.ddp else model  # always contains the "raw" unwrapped model
-        self.optimizer = raw_model.configure_optimizers(
+        self.raw_model = model.module if self.ddp else model  # always contains the "raw" unwrapped model
+        self.optimizer = self.raw_model.configure_optimizers(
             weight_decay=config.weight_decay,
             learning_rate=config.learning_rate,
             device_type=self.device_type
         )
 
-        # create the log directory we will write checkpoints to and log to
-        log_dir = os.path.join(DATA_ROOT_PATH, "log")
-        os.makedirs(log_dir, exist_ok=True)
-        log_file = os.path.join(log_dir, f"log.txt")
-        with open(log_file, "w") as f:  # open for writing to clear the file
-            pass
-
-        self.log_file = log_file
-        self.log_dir = log_dir
-
-        self.raw_model = raw_model
-        self.use_compile = use_compile
-        self.grad_accum_steps = grad_accum_steps
+        self.log_file, self.log_dir = create_log_file_and_dir()
 
         self.max_lr = config.max_lr
         self.min_lr = config.min_lr
@@ -161,8 +149,12 @@ class Trainer:
             for _ in range(val_loss_steps):
                 x, y = self.val_loader.next_batch()
                 x, y = x.to(self.device), y.to(self.device)
-                with torch.autocast(device_type="cpu", dtype=torch.bfloat16): # TODO do validation on device
-                    logits, loss_core, loss_decoder = model(x,targets=y, no_decoding=False)
+                if self.device_type == "cuda" or self.device_type == "cpu":
+                    with torch.autocast(device_type=self.device_type, dtype=torch.bfloat16): # bfloat16 is faster for evaluation
+                        logits, loss_core, loss_decoder = model(x,targets=y, no_decoding=False)
+                elif self.device_type == "mps":
+                        logits, loss_core, loss_decoder = model(x,targets=y, no_decoding=False) # MPS does not support bfloat16
+
                 loss = loss_decoder / val_loss_steps
                 val_loss_accum += loss.detach()
 
@@ -242,7 +234,6 @@ class Trainer:
             loss_accum += loss.detach()
             loss.backward()
 
-        print()
         if self.ddp:
             dist.all_reduce(loss_accum, op=dist.ReduceOp.AVG)
 
