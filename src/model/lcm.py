@@ -28,7 +28,7 @@ class LCM(nn.Module):
         self.rng.manual_seed(42)
         # self.to(DEVICE)  # TODO: exercise
 
-    def forward(self, x, target=None, no_decoding=False):
+    def forward(self, x, target=None, no_decoding=False, max_concepts=8):
         """
         Forward pass of the model
 
@@ -43,12 +43,15 @@ class LCM(nn.Module):
         """
         x = self.encoder(x)
         if no_decoding:
-            x, loss = self.core(x, target)  # x is of shape (B, C, D), loss is of shape (B, C)
-            return x, loss
+            x, loss_core = self.core(x, target)  # x is of shape (B, C, D), loss is of shape (B, C)
+            return x, loss_core
         else:
-            x, loss_core = self.core(x)
+            total_core_loss = 0
+            for n_concept in range(max_concepts):
+                x, loss_core = self.core(x)
+                total_core_loss+=loss_core
             x, loss_decoder = self.decoder(x, target)
-            return x, loss_core, loss_decoder
+            return x, total_core_loss, loss_decoder
 
     def infer(
             self,
@@ -137,6 +140,6 @@ if __name__ == '__main__':
     generated_text = model.infer(
         "Clever, astute, insighful, smart, sagatious",  # input text (can be already tokenized)
         num_concepts=3,  # number of total concepts: input + generated
-        num_tokens_to_generate=3  # number of tokens to generate
+        num_tokens_to_generate=20  # number of tokens to generate
     )
     print(generated_text[0])  # first sentence in batch
