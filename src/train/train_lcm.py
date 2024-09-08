@@ -8,8 +8,10 @@ import torch
 from torch.nn import functional as F
 
 from hellaswag import render_example, iterate_examples
+from src.benchmark.evaluate_gpt_bert import targets
 from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT, CoreLCMConfig
 from src.model.lcm import LCM
+from src.model.decoder import DecoderConfig
 
 
 def load_tokens(filename):
@@ -103,20 +105,20 @@ import torch.distributed as dist
 class TrainerConfig:
     total_batch_size: int = 524288  # 2**19, ~0.5M, in number of tokens
     B: int = 1 * N_TOKENS_PER_CONCEPT  # micro batch size
-    T: int = 1024  # sequence length
+    T: int = 1024  # sequence length, was 1024 in GPT-2
 
-    eval_freq = 250
-    eval_hellaswag_freq = 250
-    eval_model_inference_freq = 250
-    checkpoint_freq = 500
+    eval_freq = 10
+    eval_hellaswag_freq = 10
+    eval_model_inference_freq = 10
+    checkpoint_freq = 10
 
-    max_lr: float = 6e-4
+    max_lr: float = 1e-3 # 6e-4 is the default for GPT-2
     min_lr: float = max_lr * 0.1
     warmup_steps: int = 715
     max_steps: int = 19073  # 19,073 steps is ~1 epoch, if data is 10B tokens and batch size 0.5M tokens
 
     weight_decay: float = 0.1
-    learning_rate: float = 6e-4
+    learning_rate: float = 1e-3 # 6e-4 is the default for GPT-2
     seed: int = 1337
 
 
@@ -289,9 +291,9 @@ class Trainer:
             for _ in range(val_loss_steps):
                 x, y = self.val_loader.next_batch()
                 x, y = x.to(self.device), y.to(self.device)
-                with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
-                    logits, loss = model(x, y)
-                loss = loss / val_loss_steps
+                with torch.autocast(device_type="cpu", dtype=torch.bfloat16): # TODO do validation on device
+                    logits, loss_core, loss_decoder = model(x,targets=y, no_decoding=False)
+                loss = loss_decoder / val_loss_steps
                 val_loss_accum += loss.detach()
 
         if self.ddp:
@@ -346,6 +348,7 @@ class Trainer:
                 f.write(f"{step} hella {acc_norm:.4f}\n")
 
     def eval_model_inference(self, step):
+        # TODO: UNCOMMENT WHEN READY
         ...
         # model.eval()
         # num_return_sequences = 4
@@ -424,7 +427,7 @@ class Trainer:
 
 
 if __name__ == "__main__":
-    model = LCM(CoreLCMConfig())
+    model = LCM(config_core=CoreLCMConfig(), config_decoder=DecoderConfig())
     # model = GPT(GPTConfig())
     # model = GPT.from_pretrained("gpt2") # or init from OpenAI GPT-2
 

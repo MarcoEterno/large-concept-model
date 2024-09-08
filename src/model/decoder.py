@@ -1,4 +1,5 @@
 import inspect
+from logging import raiseExceptions
 
 import torch
 import torch.nn as nn
@@ -24,7 +25,7 @@ class Decoder(nn.Module):
 
         # weight sharing scheme
         self.transformer.wte.weight = self.lm_head.weight
-        self.transformer.cpe.weight = self.lm_head.weight
+        # self.transformer.cpe.weight = self.lm_head.weight  # slight abuse since there is no reason to share the weights
 
         # init params
         self.apply(self._init_weights)
@@ -59,7 +60,7 @@ class Decoder(nn.Module):
         xc = concepts + pos_emb
 
         # concatenate the concepts and tokens
-        x = torch.cat([xc, xt], dim=1)  # (B, C + T, D)
+        x = torch.cat([xc, xt], dim=1)  # (B, C + T, D) # TODO: this concatenation is not ideal, because you would want to have concepts and tokens in separate blocks to exploit transformers bias for shapes
 
         # forward the blocks of the transformer
         for block in self.transformer.h:
@@ -74,6 +75,8 @@ class Decoder(nn.Module):
 
     @classmethod
     def from_pretrained(cls, model_type):
+        # raise NotImplementedError
+
         """Loads pretrained GPT-2 model weights from huggingface"""
         assert model_type in {'gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'}
         from transformers import GPT2LMHeadModel
@@ -121,7 +124,7 @@ class Decoder(nn.Module):
                     sd[k].copy_(sd_hf[k])
 
         # copy the embeddings for concept positional encoding
-        sd['transformer.cpe.weight'].copy_(sd['transformer.wte.weight'])
+        sd['transformer.cpe.weight'].copy_(sd['transformer.wpe.weight'])
 
         return model
 

@@ -28,11 +28,34 @@ class LCM(nn.Module):
         self.rng.manual_seed(42)
         # self.to(DEVICE)  # TODO: exercise
 
+    def forward(self, x, target=None, no_decoding=False):
+        """
+        Forward pass of the model
+
+        Args:
+            x: input tensor of shape (B, C, D)
+            target: target tensor of shape (B, T)
+            no_decoding: if True, only the core is used
+
+        Returns:
+            logits: tensor of shape (B, T, vocab_size)
+            loss: tensor of shape (B, T)
+        """
+        x = self.encoder(x)
+        if no_decoding:
+            x, loss = self.core(x, target)  # x is of shape (B, C, D), loss is of shape (B, C)
+            return x, loss
+        else:
+            x, loss_core = self.core(x)
+            x, loss_decoder = self.decoder(x, target)
+            return x, loss_core, loss_decoder
+
     def infer(
             self,
             inputs: str | torch.Tensor | list[str],
             num_concepts: int,
             num_tokens_to_generate: int,
+
     ):  # tokens is of shape (B, T)
         assert num_concepts <= self.config_core.block_size, "Cannot generate more concepts than core block size"
         assert num_tokens_to_generate <= self.config_decoder.block_size, "Cannot generate more tokens than decoder block size"
@@ -94,8 +117,8 @@ class LCM(nn.Module):
             # gather the corresponding indices
             return torch.gather(topk_indices, -1, ix)  # (B, 1)
 
-    def load(self, checkpoint_path):
-        checkpoint = torch.load(checkpoint_path, map_location=torch.device('cpu'))
+    def load(self, checkpoint_path, device):
+        checkpoint = torch.load(checkpoint_path, map_location=torch.device(device))  # TODO: map it on device
         model.load_state_dict(checkpoint['model'], strict=False)  # TODO change to strict=True when decoder is trained
         model.decoder = Decoder.from_pretrained('gpt2')  # TODO decoder will be trained
         self.eval()
@@ -109,10 +132,11 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
 
     model = LCM(config_core=CoreLCMConfig(), config_decoder=DecoderConfig())
-    model.load(checkpoint_path=f"{DATA_ROOT_PATH}/checkpoint/core_lcm_04500.pt")
+    device = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_built() else 'cpu'
+    model.load(checkpoint_path=f"{DATA_ROOT_PATH}/checkpoints/core_lcm_04500.pt", device=device)
     generated_text = model.infer(
-        "Clever, astute, insighful, smart, sagation",  # input text (can be already tokenized)
+        "Clever, astute, insighful, smart, sagatious",  # input text (can be already tokenized)
         num_concepts=3,  # number of total concepts: input + generated
-        num_tokens_to_generate=32  # number of tokens to generate
+        num_tokens_to_generate=3  # number of tokens to generate
     )
     print(generated_text[0])  # first sentence in batch

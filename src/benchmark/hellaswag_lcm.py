@@ -182,21 +182,19 @@ def evaluate(model_type, device, one_example_every_n = 1):
 
 @torch.no_grad()
 def evaluate_lcm(model_checkpoint, n_tokens_per_concept,  device, one_example_every_n = 1):
-    # TODO: check that attention mask for BERT is right
-    # TODO: check that the attention mask for LCM core is right
     torch.set_float32_matmul_precision('high') # use tf32
 
-    checkpoint = torch.load(model_checkpoint, map_location=torch.device('cpu')) # TODO: speed up
+    checkpoint = torch.load(model_checkpoint, map_location=torch.device(device), weights_only=False)
     state_dict = checkpoint["model"]
     model = CoreLCM(LCMConfig)
     model.load_state_dict(state_dict, strict=False)
     model.to(device)
     model.eval()
-    print(model)
     # model = torch.compile(model) # optionally torch compile the model and the encoder, helpful for bigger models
 
     encoder = Encoder(n_tokens_per_concept=n_tokens_per_concept).to(device)
     encoder.eval()
+
     num_correct_norm = 0
     num_correct = 0
     iterations = 0
@@ -249,7 +247,7 @@ def evaluate_lcm(model_checkpoint, n_tokens_per_concept,  device, one_example_ev
 
         # calculate loss
         #shift_losses = F.cross_entropy(flat_shift_logits, flat_shift_concepts, reduction='none')
-        shift_losses = - F.cosine_similarity(shift_concepts_forecast, shift_concepts_real, dim=-1)# check what is the mean for, should be mean on the concepts of the single sentence
+        shift_losses = 1 - F.cosine_similarity(shift_concepts_forecast, shift_concepts_real, dim=-1)# check what is the mean for, should be mean on the concepts of the single sentence
         # shift_losses = shift_losses.view(concepts_real.size(0), -1)
 
         # now get the average loss just for the completion region (where mask == 1), in each row
@@ -259,7 +257,7 @@ def evaluate_lcm(model_checkpoint, n_tokens_per_concept,  device, one_example_ev
 
         # sum and divide by the number of 1s in the mask
         sum_loss = masked_shift_losses.sum(dim=1)
-        avg_loss = sum_loss / shift_concept_mask.sum(dim=1) # error because the attention mask is all ones regardless of n_tokens in the answer. TODO: fix
+        avg_loss = sum_loss / shift_concept_mask.sum(dim=1)
 
         # now we have a loss for each of the 4 completions
         # the one with the lowest loss should be the most likely
@@ -274,7 +272,7 @@ def evaluate_lcm(model_checkpoint, n_tokens_per_concept,  device, one_example_ev
         print(f"{iterations} acc_norm: {num_correct_norm}/{num_examples_evaluated_so_far}={num_correct_norm/num_examples_evaluated_so_far:.4f}")
 
         # debug: pretty print a few examples, and the losses in each case
-        if iterations < 10:
+        if iterations < 202:
             print("---")
             print(f"Context:\n {example['ctx']}")
             print(f"Endings:")
@@ -290,6 +288,6 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--model_checkpoint", type=str, default= checkpoint_file, help="the checkpoint file to use")
     parser.add_argument("-ntc", "--n_tokens_per_concept", type=int, default=8, help="the number of tokens per concept")
     parser.add_argument("-d", "--device", type=str, default="mps", help="the device to use")
-    parser.add_argument("-n", "--one_example_every_n", type=int, default=100, help="evaluate one example every n")
+    parser.add_argument("-n", "--one_example_every_n", type=int, default=10, help="evaluate one example every n")
     args = parser.parse_args()
     evaluate_lcm(args.model_checkpoint, args.n_tokens_per_concept, args.device, args.one_example_every_n)

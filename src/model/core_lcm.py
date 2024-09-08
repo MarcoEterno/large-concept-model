@@ -58,7 +58,7 @@ class CoreLCM(nn.Module):
         assert D == self.config.n_embd, f"Dimensionality of the input should be {self.config.n_embd}, but got {D}"
 
         # forward the token and position embeddings
-        pos = torch.arange(0, C, dtype=torch.long, device=input_concepts.device)  # shape (C)
+        pos = torch.arange(0, C, dtype=torch.long, device=input_concepts.device)  # shape (C) # TODO change to generator with yield
         pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (C, n_embd)
         x = input_concepts + pos_emb
         # forward the blocks of the transformer
