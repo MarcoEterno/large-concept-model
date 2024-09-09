@@ -15,8 +15,9 @@ logger = logging.getLogger(__name__)
 
 
 class LCM(nn.Module):
-    def __init__(self, config_core, config_decoder, *args, **kwargs):
+    def __init__(self, config_core, config_decoder, no_decoding=False,  *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.no_decoding = no_decoding
         self.config_core = config_core
         self.config_decoder = config_decoder
         self.encoder = Encoder(config_core.n_tokens_per_concept)
@@ -28,7 +29,7 @@ class LCM(nn.Module):
         self.rng.manual_seed(42)
         # self.to(DEVICE)  # TODO: exercise
 
-    def forward(self, x, target=None, no_decoding=False, max_concepts=8):
+    def forward(self, x, target=None, no_decoding=None, max_concepts=8):
         """
         Forward pass of the model
 
@@ -41,6 +42,8 @@ class LCM(nn.Module):
             logits: tensor of shape (B, T, vocab_size)
             loss: tensor of shape (B, T)
         """
+        if no_decoding is None:
+            no_decoding = self.no_decoding
         x = self.encoder(x)
         if no_decoding:
             x, loss_core = self.core(x, target)  # x is of shape (B, C, D), loss is of shape (B, C)
@@ -48,7 +51,7 @@ class LCM(nn.Module):
         else:
             total_core_loss = 0
             for n_concept in range(max_concepts):
-                x, loss_core = self.core(x)
+                x, loss_core = self.core(x, target)  # x is of shape (B, C, D), loss is of shape (B, C)
                 total_core_loss+=loss_core
             x, loss_decoder = self.decoder(x, target)
             return x, total_core_loss, loss_decoder

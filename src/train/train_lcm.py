@@ -7,11 +7,9 @@ import numpy as np
 import torch
 from torch.nn import functional as F
 
-from src.benchmark.hellaswag_gpt import render_example, iterate_examples, get_most_likely_row
-from src.benchmark.evaluate_gpt_bert import targets
+
 from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT, CoreLCMConfig
-from src.model.lcm import LCM
-from src.model.decoder import DecoderConfig
+from src.model.lower_lcm import Lower_LCM
 from src.train.train_config import TrainerConfig, setup_ddp, create_log_file_and_dir
 from src.train.data_loader import DataLoaderLite
 # -----------------------------------------------------------------------------
@@ -25,13 +23,10 @@ from torch.distributed import destroy_process_group
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
 
-
+# importing this class seems to take a lot of time
 class Trainer:
     def __init__(self, model, config):
-        self.model = model
-
-
-        self.ddp, self.ddp_rank, self.ddp_local_rank, self.ddp_world_size, self.master_process, self.device = setup_ddp()
+        self.ddp, self.ddp_rank, self.ddp_local_rank, self.ddp_world_size, self.master_process, self.device = setup_ddp(self)
         self.device_type = "cuda" if self.device.startswith("cuda") else "mps" if torch.backends.mps.is_built() else "cpu"
 
         torch.manual_seed(config.seed)
@@ -66,6 +61,7 @@ class Trainer:
 
         # create model
         torch.set_float32_matmul_precision('high')
+        self.model = model
         model.to(self.device)
         self.use_compile = config.use_compile # torch.compile interferes with HellaSwag eval and Generation. TODO fix
         if self.use_compile:
@@ -80,7 +76,7 @@ class Trainer:
             device_type=self.device_type
         )
 
-        self.log_file, self.log_dir = create_log_file_and_dir()
+        self.log_file, self.log_dir = create_log_file_and_dir(self)
 
         self.max_lr = config.max_lr
         self.min_lr = config.min_lr
@@ -112,7 +108,7 @@ class Trainer:
             last_step = (step == self.max_steps - 1)
 
             # once in a while evaluate our validation loss
-            if step % self.eval_freq == 0 or last_step:
+            if (step % self.eval_freq == 0  and step !=0) or last_step:
                 self.eval(step, last_step)
 
             # # once in a while evaluate hellaswag
@@ -131,7 +127,7 @@ class Trainer:
             dt = t1 - t0  # time difference in seconds
             tokens_processed = self.train_loader.B * self.train_loader.T * self.grad_accum_steps * self.ddp_world_size
             tokens_per_sec = tokens_processed / dt
-            if self.master_process:
+            if self.master_process or not self.ddp:
                 print(
                     f"step {step:5d} | loss: {loss_accum.item():.6f} | lr {lr:.4e} | norm: {norm:.4f} | dt: {dt * 1000:.2f}ms | tok/sec: {tokens_per_sec:.2f}")
                 with open(self.log_file, "a") as f:
@@ -140,20 +136,36 @@ class Trainer:
         if self.ddp:
             destroy_process_group()
 
+    def save_checkpoint(self, step, val_loss_accum):
+        # optionally write model checkpoints
+        checkpoint_path = os.path.join(self.log_dir, f"model_{step:05d}.pt")
+        checkpoint = {
+            'model': self.raw_model.state_dict(),
+            'config': self.raw_model.config,
+            'step': step,
+            'val_loss': val_loss_accum.item(),
+            'optimizer': self.optimizer.state_dict(),
+            'rng_state': torch.get_rng_state(),
+        }
+        torch.save(checkpoint, checkpoint_path)
+
     def eval(self, step, last_step):
         model.eval()
         self.val_loader.reset()
         with torch.no_grad():
             val_loss_accum = 0.0
-            val_loss_steps = 20
+            val_loss_steps = 20 # TODO: change before training to 20
             for _ in range(val_loss_steps):
                 x, y = self.val_loader.next_batch()
                 x, y = x.to(self.device), y.to(self.device)
                 if self.device_type == "cuda" or self.device_type == "cpu":
                     with torch.autocast(device_type=self.device_type, dtype=torch.bfloat16): # bfloat16 is faster for evaluation
-                        logits, loss_core, loss_decoder = model(x,targets=y, no_decoding=False)
+                        logits, loss_core, loss_decoder = model(x,targets=y)
                 elif self.device_type == "mps":
-                        logits, loss_core, loss_decoder = model(x,targets=y, no_decoding=False) # MPS does not support bfloat16
+                        logits, loss_core, loss_decoder = model(x,targets=y) # MPS does not support bfloat16
+
+                else:
+                    raise ValueError(f"device_type {self.device_type} not supported")
 
                 loss = loss_decoder / val_loss_steps
                 val_loss_accum += loss.detach()
@@ -165,49 +177,7 @@ class Trainer:
             with open(self.log_file, "a") as f:
                 f.write(f"{step} val {val_loss_accum.item():.4f}\n")
             if step > 0 and (step % self.checkpoint_freq == 0 or last_step):
-                # optionally write model checkpoints
-                checkpoint_path = os.path.join(self.log_dir, f"model_{step:05d}.pt")
-                checkpoint = {
-                    'model': self.raw_model.state_dict(),
-                    'config': self.raw_model.config,
-                    'step': step,
-                    'val_loss': val_loss_accum.item()
-                }
-                # you might also want to add optimizer.state_dict() and
-                # rng seeds etc., if you wanted to more exactly resume training
-                torch.save(checkpoint, checkpoint_path)
-
-    def eval_hellaswag(self, step):
-        num_correct_norm = 0
-        num_total = 0
-        for i, example in enumerate(iterate_examples("val")):
-            # only process examples where i % ddp_world_size == ddp_rank
-            if i % self.ddp_world_size != self.ddp_rank:
-                continue
-            # render the example into tokens and labels
-            _, tokens, mask, label = render_example(example)
-            tokens = tokens.to(self.device)
-            mask = mask.to(self.device)
-            # get the logits
-            with torch.no_grad():
-                with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
-                    logits, loss = model(tokens)
-                pred_norm = get_most_likely_row(tokens, mask, logits)
-            num_total += 1
-            num_correct_norm += int(pred_norm == label)
-        # reduce the stats across all processes
-        if self.ddp:
-            num_total = torch.tensor(num_total, dtype=torch.long, device=self.device)
-            num_correct_norm = torch.tensor(num_correct_norm, dtype=torch.long, device=self.device)
-            dist.all_reduce(num_total, op=dist.ReduceOp.SUM)
-            dist.all_reduce(num_correct_norm, op=dist.ReduceOp.SUM)
-            num_total = num_total.item()
-            num_correct_norm = num_correct_norm.item()
-        acc_norm = num_correct_norm / num_total
-        if self.master_process:
-            print(f"HellaSwag accuracy: {num_correct_norm}/{num_total}={acc_norm:.4f}")
-            with open(self.log_file, "a") as f:
-                f.write(f"{step} hella {acc_norm:.4f}\n")
+                self.save_checkpoint(step, val_loss_accum)
 
 
     def optimize_one_step(self, step):
@@ -223,7 +193,10 @@ class Trainer:
             if self.ddp:
                 model.require_backward_grad_sync = (micro_step == self.grad_accum_steps - 1)
 
-            with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
+            if self.device_type == "cuda" or self.device_type == "cpu":
+                with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
+                    logits, loss = model(x, y)
+            elif self.device_type == "mps":
                 logits, loss = model(x, y)
 
             # we have to scale the loss to account for gradient accumulation,
@@ -251,9 +224,6 @@ class Trainer:
 
 
 if __name__ == "__main__":
-    model = LCM(config_core=CoreLCMConfig(), config_decoder=DecoderConfig())
-    # model = GPT(GPTConfig())
-    # model = GPT.from_pretrained("gpt2") # or init from OpenAI GPT-2
-
+    model = Lower_LCM(config_core=CoreLCMConfig())
     trainer = Trainer(model, TrainerConfig())
     trainer.run()

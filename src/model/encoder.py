@@ -8,10 +8,11 @@ class Encoder(nn.Module):
         super().__init__(*args, **kwargs)
         self.n_tokens_per_concept = n_tokens_per_concept
         self.tokenizer = tokenizer if tokenizer else BertTokenizer.from_pretrained(
-            'bert-base-uncased', clean_up_tokenization_spaces=True)
-        self.model = model if model else BertModel.from_pretrained('bert-base-uncased')
+            'bert-large-uncased', clean_up_tokenization_spaces=True)
+        self.model = model if model else BertModel.from_pretrained('bert-large-uncased')
 
-    def forward(self, *args, **kwargs):
+    def forward(self, *args):
+        # had to take out the kwargs from the forward method because python thought it was an init method instead
         """
         Accepts input in the form of a string, a list of strings, or a tensor of tokens (batched or not).
 
@@ -21,12 +22,12 @@ class Encoder(nn.Module):
         - If a tensor of tokens is passed, it will be encoded into concepts.
         """
         if len(args) == 1 and isinstance(args[0], str):
-            return self.encode_text(*args, **kwargs)
+            return self.encode_text(*args)
         if len(args) == 1 and isinstance(args[0], torch.Tensor):
-            return self.encode_tokens(*args, **kwargs)
+            return self.encode_tokens(*args)
         if len(args) == 1 and isinstance(args[0], list):
             a0, *args = args
-            return torch.concat([self.forward(x, *args, **kwargs) for x in a0], dim=0)
+            return torch.concat([self.forward(x, *args) for x in a0], dim=0)
 
     def encode_text(self, text: str) -> torch.Tensor:
         # tokenize with BERT

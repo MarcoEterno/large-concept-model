@@ -124,7 +124,7 @@ class Decoder(nn.Module):
                     sd[k].copy_(sd_hf[k])
 
         # copy the embeddings for concept positional encoding
-        sd['transformer.cpe.weight'].copy_(sd['transformer.wpe.weight'])
+        sd['transformer.cpe.weight'].copy_(sd['transformer.wpe.weight']) # slight abuse since there is no reason to share the weights
 
         return model
 
