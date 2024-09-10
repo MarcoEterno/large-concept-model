@@ -281,6 +281,7 @@ def evaluate_lcm_checkpoint(model_checkpoint, n_tokens_per_concept, device, one_
             print(f"predicted: {pred_norm}, actual: {label}")
 
 def evaluate_lower_lcm(model, n_tokens_per_concept, device, one_example_every_n=1, print_to_video=True):
+    # TODO add batch size >1 to speed up
     torch.set_float32_matmul_precision('high')  # use tf32
     model.to(device)
     model.eval()
@@ -304,20 +305,20 @@ def evaluate_lower_lcm(model, n_tokens_per_concept, device, one_example_every_n=
         tokens = tokens.to(device)
         token_mask = token_mask.to(device)
 
-        context_concepts = encoder.encode_tokens(torch.Tensor(data["ctx_tokens"]).to(device))
+        context_concepts = encoder.encode_tokens(torch.tensor(data["ctx_tokens"], dtype=torch.long).to(device))
 
         # Pad ending tokens to the maximum length
         max_len = max(len(ending) for ending in data["ending_tokens"])
         padded_endings = [ending + [encoder.tokenizer.pad_token_id] * (max_len - len(ending)) for ending in
                           data["ending_tokens"]]
-        ending_concepts = encoder.encode_tokens(torch.Tensor(padded_endings).to(device))
+        ending_concepts = encoder.encode_tokens(torch.tensor(padded_endings, dtype=torch.long).to(device))
 
         # concatenate the context and the ending concepts by copying the context concepts 4 times and pasting them before ending concepts
         concepts_real = torch.cat([context_concepts.repeat(4, 1, 1), ending_concepts], dim=1)
 
         # create the mask for the concepts
         max_ending_concept_len = ending_concepts.size(1)
-        ending_concept_mask = torch.zeros(4, max_ending_concept_len, dtype=torch.float32, device=device)
+        ending_concept_mask = torch.zeros(4, max_ending_concept_len, dtype=torch.long, device=device)
         for i in range(4):
             concept_position = -1
             for position, ending_token in enumerate(data["ending_tokens"][i]):
@@ -328,7 +329,7 @@ def evaluate_lower_lcm(model, n_tokens_per_concept, device, one_example_every_n=
                     break
                 ending_concept_mask[i, concept_position] = 1
         concept_mask = torch.cat(
-            [torch.zeros(context_concepts.shape[:-1], dtype=torch.float32, device=device).repeat(4, 1),
+            [torch.zeros(context_concepts.shape[:-1], dtype=torch.long, device=device).repeat(4, 1),
              ending_concept_mask], dim=1)
 
         # get the forecasted concepts

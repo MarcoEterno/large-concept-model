@@ -15,9 +15,9 @@ from src.train.data_loader import DataLoaderLite
 from src.benchmark.hellaswag_lcm import evaluate_lower_lcm
 # -----------------------------------------------------------------------------
 # simple launch:
-# python train_gpt2.py
-# DDP launch for e.g. 8 GPUs:
-# torchrun --standalone --nproc_per_node=8 train_gpt2.py
+# python train_lcm.py
+# DDP launch for e.g. 4 GPUs:
+# torchrun --standalone --nproc_per_node=4 train_lcm.py
 
 # run the training loop
 from torch.distributed import destroy_process_group
@@ -145,7 +145,10 @@ class Trainer:
 
     def save_checkpoint(self, step, val_loss_accum):
         # optionally write model checkpoints
-        checkpoint_path = os.path.join(self.log_dir, f"model_{step:05d}.pt")
+        from src.model.config import CoreLCMConfig as conf
+        checkpoint_path = os.path.join(
+            self.log_dir,f"lower_lcm_ntc-{conf.n_tokens_per_concept}_nlayer-{conf.n_layer}_nhead-{conf.n_head}_n_embd-{conf.n_embd}_step-{step:05d}.pt")
+
         checkpoint = {
             'model': self.raw_model.state_dict(),
             'config': self.raw_model.config,
@@ -154,7 +157,7 @@ class Trainer:
             'optimizer': self.optimizer.state_dict(),
             'rng_state': torch.get_rng_state(),
         }
-
+        print("saving_checkpoint")
         torch.save(checkpoint, checkpoint_path)
 
     def eval(self, step, last_step):
