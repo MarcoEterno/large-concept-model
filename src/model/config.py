@@ -33,6 +33,11 @@ class DecoderConfig:
     n_head: int = 12  # number of heads
     n_embd: int = 768  # embedding dimension
 
+@dataclass
+class LCMConfig:
+    core_config: CoreLCMConfig
+    decoder_config: DecoderConfig
+
 
 @dataclass
 class GPTConfig:

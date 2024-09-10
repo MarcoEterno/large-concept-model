@@ -25,7 +25,6 @@ class Decoder(nn.Module):
 
         # weight sharing scheme
         self.transformer.wte.weight = self.lm_head.weight
-        # self.transformer.cpe.weight = self.lm_head.weight  # slight abuse since there is no reason to share the weights
 
         # init params
         self.apply(self._init_weights)
@@ -73,6 +72,7 @@ class Decoder(nn.Module):
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
         return logits, loss
 
+    # TODO: substitute with load from checkpoint
     @classmethod
     def from_pretrained(cls, model_type):
         # raise NotImplementedError
@@ -154,3 +154,10 @@ class Decoder(nn.Module):
             print(f"using fused AdamW: {use_fused}")
         optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=(0.9, 0.95), eps=1e-8, fused=use_fused)
         return optimizer
+
+if __name__ == "__main__":
+    model = Decoder.from_pretrained('gpt2')
+    print(model)
+    optimizer = model.configure_optimizers(0.1, 0.1, 'cuda')
+    print(optimizer)
+    print("done")

@@ -19,12 +19,14 @@ class Lower_LCM(nn.Module):
         self.encoder = Encoder(n_tokens_per_concept=config_core.n_tokens_per_concept)
         self.core = CoreLCM(config_core)
 
+        self.internal_concepts = torch.empty(size=(0, config_core.n_embd))
+
         self.enc = tiktoken.get_encoding("gpt2")
         self.rng = torch.Generator()
         self.rng.manual_seed(42)
         # self.to(DEVICE)  # TODO: exercise
 
-    def forward(self, x, target=None, max_concepts=8):
+    def forward(self, x, target=None):
         """
         Forward pass of the model
 

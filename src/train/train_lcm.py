@@ -27,7 +27,7 @@ import torch.distributed as dist
 # importing this class seems to take a lot of time
 class Trainer:
     def __init__(self, model, config):
-        self.ddp, self.ddp_rank, self.ddp_local_rank, self.ddp_world_size, self.master_process, self.device = setup_ddp(self)
+        self.ddp, self.ddp_rank, self.ddp_local_rank, self.ddp_world_size, self.master_process, self.device = setup_ddp()
         self.device_type = "cuda" if self.device.startswith("cuda") else "mps" if torch.backends.mps.is_built() else "cpu"
 
         torch.manual_seed(config.seed)
@@ -79,6 +79,7 @@ class Trainer:
 
         self.log_file, self.log_dir = create_log_file_and_dir(self)
 
+        # TODO: chage to self.config.---
         self.max_lr = config.max_lr
         self.min_lr = config.min_lr
         self.warmup_steps = config.warmup_steps
@@ -113,17 +114,18 @@ class Trainer:
             if (step % self.eval_freq == 0  and step !=0) or last_step:
                 self.eval(step, last_step)
 
-            # once in a while evaluate hellaswag
+            # once in a while evaluate hellaswag # TODO: write hellaswag eval for LCM
+            """
             if (step % self.eval_hellaswag_freq == 0 or last_step) and (not self.use_compile):
                 num_correct, num_evaluated =evaluate_lower_lcm(self.model, n_tokens_per_concept = N_TOKENS_PER_CONCEPT, device=self.device, one_example_every_n=self.eval_hellaswag_compression, print_to_video=self.master_process)
                 if self.master_process:
                     with open(self.log_file, "a") as f:
-                        f.write(f"{step} hellaswag {num_correct / num_evaluated:.4f}\n")
+                        f.write(f"{step} hellaswag {num_correct / num_evaluated:.4f}\n")"""
             #
             # # once in a while generate from the model (except step 0, which is noise)
             # if ((step > 0 and step % self.eval_model_inference_freq == 0) or last_step) and (not self.use_compile):
             #     eval_model_inference(self,step)
-
+            #
             # do one step of the optimization
             loss_accum, lr, norm = self.optimize_one_step(step)  # return just to print
 
@@ -152,6 +154,7 @@ class Trainer:
             'optimizer': self.optimizer.state_dict(),
             'rng_state': torch.get_rng_state(),
         }
+
         torch.save(checkpoint, checkpoint_path)
 
     def eval(self, step, last_step):
@@ -165,15 +168,15 @@ class Trainer:
                 x, y = x.to(self.device), y.to(self.device)
                 if self.device_type == "cuda" or self.device_type == "cpu":
                     with torch.autocast(device_type=self.device_type, dtype=torch.bfloat16): # bfloat16 is faster for evaluation
-                        logits, loss_core = model(x,target=y)
+                        logits, loss = model(x,target=y)
                 elif self.device_type == "mps":
-                        logits, loss_core = model(x,target=y) # MPS does not support bfloat16
+                        logits, loss = model(x,target=y) # MPS does not support bfloat16
 
                 else:
                     raise ValueError(f"device_type {self.device_type} not supported")
 
-                loss = loss_core / val_loss_steps
-                val_loss_accum += loss.detach()
+                average_loss = loss / val_loss_steps
+                val_loss_accum += average_loss.detach()
 
         if self.ddp:
             dist.all_reduce(val_loss_accum, op=dist.ReduceOp.AVG)

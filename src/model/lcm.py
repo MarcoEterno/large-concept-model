@@ -5,31 +5,45 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
+from karpathy_gpt2.train_gpt2 import decoded
 from src.model.config import CoreLCMConfig, DATA_ROOT_PATH
 from src.model.config import DecoderConfig
 from src.model.core_lcm import CoreLCM
 from src.model.decoder import Decoder
 from src.model.encoder import Encoder
+from src.model.lower_lcm import Lower_LCM
 
 logger = logging.getLogger(__name__)
 
 
 class LCM(nn.Module):
-    def __init__(self, config_core, config_decoder, no_decoding=False,  *args, **kwargs):
+    def __init__(self, lcm_config, lower_lcm = None, decoder=None,  *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.no_decoding = no_decoding
-        self.config_core = config_core
-        self.config_decoder = config_decoder
-        self.encoder = Encoder(config_core.n_tokens_per_concept)
-        self.core = CoreLCM(config_core)
-        self.decoder = Decoder(config_decoder)
+        self.lower_lcm = Lower_LCM(lcm_config.core) if lower_lcm is None else lower_lcm
+        self.decoder = Decoder(lcm_config.decoder) if decoder is None else decoder
+
+        self.config_decoder = lcm_config.decoder
+        self.config_core = lcm_config.core
 
         self.enc = tiktoken.get_encoding("gpt2")
         self.rng = torch.Generator()
         self.rng.manual_seed(42)
+
+        self.internal_concepts = torch.empty(size=(0, .n_embd))
+
+
+
         # self.to(DEVICE)  # TODO: exercise
 
-    def forward(self, x, target=None, no_decoding=None, max_concepts=8):
+    @property
+    def encoder(self):
+        return self.lower_lcm.encoder
+
+    @property
+    def core(self):
+        return self.lower_lcm.core
+
+    def forward(self, x, target=None, max_concepts=8):
         """
         Forward pass of the model
 
@@ -42,19 +56,7 @@ class LCM(nn.Module):
             logits: tensor of shape (B, T, vocab_size)
             loss: tensor of shape (B, T)
         """
-        if no_decoding is None:
-            no_decoding = self.no_decoding
-        x = self.encoder(x)
-        if no_decoding:
-            x, loss_core = self.core(x, target)  # x is of shape (B, C, D), loss is of shape (B, C)
-            return x, loss_core
-        else:
-            total_core_loss = 0
-            for n_concept in range(max_concepts):
-                x, loss_core = self.core(x, target)  # x is of shape (B, C, D), loss is of shape (B, C)
-                total_core_loss+=loss_core
-            x, loss_decoder = self.decoder(x, target)
-            return x, total_core_loss, loss_decoder
+        x = self.lower_lcm(x, target)  # x is of shape (B, C, D), loss is of shape (B, C)
 
     def infer(
             self,
@@ -131,7 +133,10 @@ class LCM(nn.Module):
         return self
 
     def configure_optimizers(self, weight_decay, learning_rate, device_type):
-        return self.core.configure_optimizers(weight_decay, learning_rate, device_type)
+        optimizer_lower_lcm = self.lo
+        optimizer_decoder = self.decoder.configure_optimizers(weight_decay, learning_rate, device_type)
+
+        return optimizer_encoder, optimizer_core, optimizer_decoder
 
 
 if __name__ == '__main__':

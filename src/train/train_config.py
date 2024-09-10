@@ -35,7 +35,7 @@ class TrainerConfig:
     use_compile: bool = False
 
 
-def setup_ddp(self):
+def setup_ddp():
     # set up DDP (distributed data parallel).
     # torchrun command sets the env variables RANK, LOCAL_RANK, and WORLD_SIZE
     ddp = int(os.environ.get('RANK', -1)) != -1  # is this a ddp run?
