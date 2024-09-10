@@ -12,6 +12,7 @@ from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT, CoreLCMConfig
 from src.model.lower_lcm import Lower_LCM
 from src.train.train_config import TrainerConfig, setup_ddp, create_log_file_and_dir
 from src.train.data_loader import DataLoaderLite
+from src.benchmark.hellaswag_lcm import evaluate_lower_lcm
 # -----------------------------------------------------------------------------
 # simple launch:
 # python train_gpt2.py
@@ -85,6 +86,7 @@ class Trainer:
 
         self.eval_freq = config.eval_freq
         self.eval_hellaswag_freq = config.eval_hellaswag_freq
+        self.eval_hellaswag_compression = config.eval_hellaswag_compression
         self.eval_model_inference_freq = config.eval_model_inference_freq
         self.checkpoint_freq = config.checkpoint_freq
 
@@ -111,9 +113,12 @@ class Trainer:
             if (step % self.eval_freq == 0  and step !=0) or last_step:
                 self.eval(step, last_step)
 
-            # # once in a while evaluate hellaswag
-            # if (step % self.eval_hellaswag_freq == 0 or last_step) and (not self.use_compile):
-            #     self.eval_hellaswag(step)
+            # once in a while evaluate hellaswag
+            if (step % self.eval_hellaswag_freq == 0 or last_step) and (not self.use_compile):
+                num_correct, num_evaluated =evaluate_lower_lcm(self.model, n_tokens_per_concept = N_TOKENS_PER_CONCEPT, device=self.device, one_example_every_n=self.eval_hellaswag_compression, print_to_video=self.master_process)
+                if self.master_process:
+                    with open(self.log_file, "a") as f:
+                        f.write(f"{step} hellaswag {num_correct / num_evaluated:.4f}\n")
             #
             # # once in a while generate from the model (except step 0, which is noise)
             # if ((step > 0 and step % self.eval_model_inference_freq == 0) or last_step) and (not self.use_compile):
@@ -160,14 +165,14 @@ class Trainer:
                 x, y = x.to(self.device), y.to(self.device)
                 if self.device_type == "cuda" or self.device_type == "cpu":
                     with torch.autocast(device_type=self.device_type, dtype=torch.bfloat16): # bfloat16 is faster for evaluation
-                        logits, loss_core, loss_decoder = model(x,targets=y)
+                        logits, loss_core = model(x,target=y)
                 elif self.device_type == "mps":
-                        logits, loss_core, loss_decoder = model(x,targets=y) # MPS does not support bfloat16
+                        logits, loss_core = model(x,target=y) # MPS does not support bfloat16
 
                 else:
                     raise ValueError(f"device_type {self.device_type} not supported")
 
-                loss = loss_decoder / val_loss_steps
+                loss = loss_core / val_loss_steps
                 val_loss_accum += loss.detach()
 
         if self.ddp:

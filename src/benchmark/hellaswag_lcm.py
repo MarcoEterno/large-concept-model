@@ -36,8 +36,8 @@ from torch.nn import functional as F
 from transformers import GPT2LMHeadModel
 
 
-from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT
-from src.model.core_lcm import CoreLCM, LCMConfig
+from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT, CoreLCMConfig
+from src.model.core_lcm import CoreLCM
 from src.model.encoder import Encoder
 # -----------------------------------------------------------------------------
 DATA_CACHE_DIR = os.path.join(DATA_ROOT_PATH, "hellaswag")
@@ -181,12 +181,12 @@ def evaluate(model_type, device, one_example_every_n = 1):
             print(f"predicted: {pred_norm}, actual: {label}")
 
 @torch.no_grad()
-def evaluate_lcm(model_checkpoint, n_tokens_per_concept,  device, one_example_every_n = 1):
+def evaluate_lcm_checkpoint(model_checkpoint, n_tokens_per_concept, device, one_example_every_n = 1):
     torch.set_float32_matmul_precision('high') # use tf32
 
     checkpoint = torch.load(model_checkpoint, map_location=torch.device(device), weights_only=False)
     state_dict = checkpoint["model"]
-    model = CoreLCM(LCMConfig)
+    model = CoreLCM(CoreLCMConfig())
     model.load_state_dict(state_dict, strict=False)
     model.to(device)
     model.eval()
@@ -279,7 +279,111 @@ def evaluate_lcm(model_checkpoint, n_tokens_per_concept,  device, one_example_ev
             for i, end in enumerate(example["endings"]):
                 print(f"{i} (loss: {avg_loss[i].item():.4f}) {end}")
             print(f"predicted: {pred_norm}, actual: {label}")
-            
+
+def evaluate_lower_lcm(model, n_tokens_per_concept, device, one_example_every_n=1, print_to_video=True):
+    torch.set_float32_matmul_precision('high')  # use tf32
+    model.to(device)
+    model.eval()
+    # model = torch.compile(model) # optionally torch compile the model and the encoder, helpful for bigger models
+
+    encoder = model.encoder.to(device)
+    encoder.eval()
+
+    num_correct_norm = 0
+    num_correct = 0
+    iterations = 0
+    num_examples_evaluated_so_far = 0
+
+    for example in iterate_examples("val"):
+        # skip examples
+        if iterations % one_example_every_n != 0:
+            iterations += 1
+            continue
+
+        data, tokens, token_mask, label = render_example(example)
+        tokens = tokens.to(device)
+        token_mask = token_mask.to(device)
+
+        context_concepts = encoder.encode_tokens(torch.Tensor(data["ctx_tokens"]).to(device))
+
+        # Pad ending tokens to the maximum length
+        max_len = max(len(ending) for ending in data["ending_tokens"])
+        padded_endings = [ending + [encoder.tokenizer.pad_token_id] * (max_len - len(ending)) for ending in
+                          data["ending_tokens"]]
+        ending_concepts = encoder.encode_tokens(torch.Tensor(padded_endings).to(device))
+
+        # concatenate the context and the ending concepts by copying the context concepts 4 times and pasting them before ending concepts
+        concepts_real = torch.cat([context_concepts.repeat(4, 1, 1), ending_concepts], dim=1)
+
+        # create the mask for the concepts
+        max_ending_concept_len = ending_concepts.size(1)
+        ending_concept_mask = torch.zeros(4, max_ending_concept_len, dtype=torch.float32, device=device)
+        for i in range(4):
+            concept_position = -1
+            for position, ending_token in enumerate(data["ending_tokens"][i]):
+                if position % n_tokens_per_concept != 0:
+                    continue
+                concept_position += 1
+                if ending_token == encoder.tokenizer.pad_token_id:
+                    break
+                ending_concept_mask[i, concept_position] = 1
+        concept_mask = torch.cat(
+            [torch.zeros(context_concepts.shape[:-1], dtype=torch.float32, device=device).repeat(4, 1),
+             ending_concept_mask], dim=1)
+
+        # get the forecasted concepts
+        concept_forecast, loss = model.core(concepts_real)
+
+        # evaluate the autoregressive loss at all positions
+        shift_concepts_forecast = (concept_forecast[..., :-1, :]).contiguous()
+        shift_concepts_real = (concepts_real[..., 1:, :]).contiguous()
+
+        # flatten the forecasts and the concepts
+        flat_shift_concepts_forecasts = shift_concepts_forecast.view(-1, shift_concepts_forecast.size(-1))
+        flat_shift_concepts_real = shift_concepts_real.view(-1, shift_concepts_real.size(-1))
+
+        # calculate loss
+        # shift_losses = F.cross_entropy(flat_shift_logits, flat_shift_concepts, reduction='none')
+        shift_losses = 1 - F.cosine_similarity(shift_concepts_forecast, shift_concepts_real,
+                                               dim=-1)  # check what is the mean for, should be mean on the concepts of the single sentence
+        # shift_losses = shift_losses.view(concepts_real.size(0), -1)
+
+        # now get the average loss just for the completion region (where mask == 1), in each row
+        # we need to create a new mask for it, that carefully separates the input from the continuation
+        shift_concept_mask = (
+        concept_mask[..., :, 1:]).contiguous()  # we must shift mask, so we start at the last prompt token
+        masked_shift_losses = shift_losses * shift_concept_mask
+
+        # sum and divide by the number of 1s in the mask
+        sum_loss = masked_shift_losses.sum(dim=1)
+        avg_loss = sum_loss / shift_concept_mask.sum(dim=1)
+
+        # now we have a loss for each of the 4 completions
+        # the one with the lowest loss should be the most likely
+        pred = avg_loss.argmin().item()
+        pred_norm = avg_loss.argmin().item()
+
+        # accumulate stats
+        iterations += 1
+        num_examples_evaluated_so_far += 1
+        num_correct += int(pred == label)
+        num_correct_norm += int(pred_norm == label)
+
+        if print_to_video:
+            print(
+                f"{iterations} acc_norm: {num_correct_norm}/{num_examples_evaluated_so_far}={num_correct_norm / num_examples_evaluated_so_far:.4f}")
+
+            # debug: pretty print a few examples, and the losses in each case
+            if num_examples_evaluated_so_far < 3 :
+                print("---")
+                print(f"Context:\n {example['ctx']}")
+                print(f"Endings:")
+                for i, end in enumerate(example["endings"]):
+                    print(f"{i} (loss: {avg_loss[i].item():.4f}) {end}")
+                print(f"predicted: {pred_norm}, actual: {label}")
+
+    return num_correct_norm, num_examples_evaluated_so_far
+
 
 if __name__ == "__main__":
     import argparse
@@ -290,4 +394,4 @@ if __name__ == "__main__":
     parser.add_argument("-d", "--device", type=str, default="mps", help="the device to use")
     parser.add_argument("-n", "--one_example_every_n", type=int, default=10, help="evaluate one example every n")
     args = parser.parse_args()
-    evaluate_lcm(args.model_checkpoint, args.n_tokens_per_concept, args.device, args.one_example_every_n)
+    evaluate_lcm_checkpoint(args.model_checkpoint, args.n_tokens_per_concept, args.device, args.one_example_every_n)
