@@ -10,14 +10,18 @@ from src.model.gpt_block import Block
 
 
 class Decoder(nn.Module):
+    """
+    The decoder for now is a simple transformer that takes a sequence of concepts and a sequence of tokens and
+    predicts the next token in the sequence.
+    """
     def __init__(self, config):
         super().__init__()
         self.config = config
 
         self.transformer = nn.ModuleDict(dict(
             wte=nn.Embedding(config.vocab_size, config.n_embd),
-            wpe=nn.Embedding(config.block_size, config.n_embd),
-            cpe=nn.Embedding(config.block_size, config.n_embd),
+            wpe=nn.Embedding(config.block_size, config.n_embd), # only 8/9 of the block will be made of tokens
+            cpe=nn.Embedding(config.block_size, config.n_embd), # only 1/9 of the block will be made of concepts
             h=nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
             ln_f=nn.LayerNorm(config.n_embd),
         ))
@@ -41,10 +45,14 @@ class Decoder(nn.Module):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def forward(self, concepts, tokens, targets=None):
+        """
+        For now, the forward method allows for block sizes that are double of the token block size.
+        in practice, given that concepts are far less than tokens, the maximum block size will be Block_Size * (N_tc + 1)/N_tc
+        """
         # tokens (B, T) are to embed
         B, T = tokens.size()
         assert T <= self.config.block_size, f"Cannot forward sequence of length {T}, block size is only {self.config.block_size}"
-        # forward the token and posisition embeddings
+        # forward the token and position embeddings
         pos = torch.arange(0, T, dtype=torch.long, device=tokens.device)  # shape (T)
         pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (T, n_embd)
         tok_emb = self.transformer.wte(tokens)  # token embeddings of shape (B, T, n_embd)
@@ -53,13 +61,13 @@ class Decoder(nn.Module):
         # concepts (B, C, D) are vectors
         B, C, D = concepts.size()
         assert C <= self.config.block_size, f"Cannot forward sequence of concepts of length {C}, block size is only {self.config.block_size}"
-        # forward the token and posisition embeddings
+        # forward the token and position embeddings
         pos = torch.arange(0, C, dtype=torch.long, device=tokens.device)  # shape (C)
         pos_emb = self.transformer.cpe(pos)  # position embeddings of shape (C, n_embd)
         xc = concepts + pos_emb
 
         # concatenate the concepts and tokens
-        x = torch.cat([xc, xt], dim=1)  # (B, C + T, D) # TODO: this concatenation is not ideal, because you would want to have concepts and tokens in separate blocks to exploit transformers bias for shapes
+        x = torch.cat([xc, xt], dim=1)  # (B, C + T, D)
 
         # forward the blocks of the transformer
         for block in self.transformer.h:

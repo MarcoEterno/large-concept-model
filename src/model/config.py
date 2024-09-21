@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DATA_ROOT_PATH = os.getenv("DATA_ROOT_PATH", str(Path(__file__).parents[2] / "data"))
-N_TOKENS_PER_CONCEPT = 8
+N_TOKENS_PER_CONCEPT = 4
 
 DEVICE = 'mps' if torch.backends.mps.is_built() else 'cuda' if torch.cuda.is_available() else 'cpu'
 TOP_K = 5

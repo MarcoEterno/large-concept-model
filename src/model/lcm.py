@@ -29,7 +29,7 @@ class LCM(nn.Module):
         self.rng = torch.Generator()
         self.rng.manual_seed(42)
 
-        self.internal_concepts = torch.empty(size=(0, .n_embd))
+        self.internal_concepts = torch.empty(size=(0, self.config_core.n_embd))
 
 
 
@@ -133,9 +133,9 @@ class LCM(nn.Module):
         return self
 
     def configure_optimizers(self, weight_decay, learning_rate, device_type):
-        optimizer_lower_lcm = self.lo
+        optimizer_encoder = None
+        optimizer_core = self.core.configure_optimizers()
         optimizer_decoder = self.decoder.configure_optimizers(weight_decay, learning_rate, device_type)
-
         return optimizer_encoder, optimizer_core, optimizer_decoder
 
 

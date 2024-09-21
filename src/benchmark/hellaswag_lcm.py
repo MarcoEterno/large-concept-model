@@ -39,6 +39,8 @@ from transformers import GPT2LMHeadModel
 from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT, CoreLCMConfig
 from src.model.core_lcm import CoreLCM
 from src.model.encoder import Encoder
+from src.model.lower_lcm import Lower_LCM
+
 # -----------------------------------------------------------------------------
 DATA_CACHE_DIR = os.path.join(DATA_ROOT_PATH, "hellaswag")
 
@@ -186,9 +188,9 @@ def evaluate_lcm_checkpoint(model_checkpoint, n_tokens_per_concept, device, one_
 
     checkpoint = torch.load(model_checkpoint, map_location=torch.device(device), weights_only=False)
     state_dict = checkpoint["model"]
-    model = CoreLCM(CoreLCMConfig())
-    model.load_state_dict(state_dict, strict=False)
-    model.to(device)
+    model_lower = Lower_LCM(config_core=CoreLCMConfig())
+    model_lower.load_state_dict(state_dict, strict=True)
+    model = model_lower.core.to(device)
     model.eval()
     # model = torch.compile(model) # optionally torch compile the model and the encoder, helpful for bigger models
 
@@ -389,10 +391,17 @@ def evaluate_lower_lcm(model, n_tokens_per_concept, device, one_example_every_n=
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    checkpoint_file = os.path.join(DATA_ROOT_PATH,"checkpoints",  "model_04500.pt")
+    checkpoint_file = os.path.join(DATA_ROOT_PATH,"checkpoints",  "lower_lcm_ntc-4_nlayer-12_nhead-16_n_embd-1024_step-06200.pt")
     parser.add_argument("-m", "--model_checkpoint", type=str, default= checkpoint_file, help="the checkpoint file to use")
-    parser.add_argument("-ntc", "--n_tokens_per_concept", type=int, default=8, help="the number of tokens per concept")
+    parser.add_argument("-ntc", "--n_tokens_per_concept", type=int, default=4, help="the number of tokens per concept")
     parser.add_argument("-d", "--device", type=str, default="mps", help="the device to use")
     parser.add_argument("-n", "--one_example_every_n", type=int, default=10, help="evaluate one example every n")
     args = parser.parse_args()
     evaluate_lcm_checkpoint(args.model_checkpoint, args.n_tokens_per_concept, args.device, args.one_example_every_n)
+
+    # scores for lower lcm with compression = 10:
+    # ntc=8 => acc_norm: 0.2716
+    # ntc=4 => acc_norm: 0.2667
+    # ntc=2 => acc_norm: 0.2577
+    # ntc=1 => acc_norm: 0.2711
+    # ntc=16 => acc_norm: 0.2219
