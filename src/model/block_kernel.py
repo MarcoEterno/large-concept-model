@@ -10,6 +10,7 @@ class GeneralCausalSelfAttention(nn.Module):
         assert config.n_embd % config.n_head == 0 # I would call the n_embed the single head dimensionality, and then multiply by heads to get the total dimensionality.
         # key, query, value projections for all heads, but in a batch
         self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd)
+        self.compressed_attention = nn.Linear(config.n_embd, 2*config.n_embd)
         # output projection
         self.c_proj = nn.Linear(config.n_embd, config.n_embd)
         self.c_proj.NANOGPT_SCALE_INIT = 1
@@ -17,6 +18,7 @@ class GeneralCausalSelfAttention(nn.Module):
         self.n_head = config.n_head
         self.n_embd = config.n_embd
     """
+    FUNCTIONING IMPLEMENTATION WITH 3 MATRICES
     def forward(self, xt):
         B, T, C = xt.size()  # batch size, sequence length, embedding dimensionality (n_embd)
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
@@ -32,9 +34,9 @@ class GeneralCausalSelfAttention(nn.Module):
         # output projection
         y = self.c_proj(y)
         return y
-    """
+    
 
-
+    FUNCTIONING ALL PYTORCH IMPLEMENTATION WITH 3 MATRICES OF ATTENTION, ON CUDA IS 15/12 TIMES SLOWER.
     def new_scaled_dot_product_attention(self, query, key, value, attn_mask=None, dropout_p=0.0, is_causal=False,
                                      scale=None) -> torch.Tensor:
         L, S = query.size(-2), key.size(-2)
@@ -56,19 +58,50 @@ class GeneralCausalSelfAttention(nn.Module):
         attn_weight = torch.softmax(attn_weight, dim=-1)
         attn_weight = torch.dropout(attn_weight, dropout_p, train=True)
         return attn_weight @ value
+    
+    """
 
+    def compressed_dot_product_attention(self, xt, qk_t, value, attn_mask=None, dropout_p=0.0, is_causal=False,
+                                         scale=None) -> torch.Tensor:
+        """
+        Shape legend:
+        - :math:`N: \text{Batch size} ... : \text{Any number of other batch dimensions (optional)}`
+        - :math:`S: \text{Source sequence length}`
+        - :math:`L: \text{Target sequence length}`
+        - :math:`E: \text{Embedding dimension of the query and key}`
+        - :math:`Ev: \text{Embedding dimension of the value}`
+        """
+        B, nh, T, hs = value.shape   # (B, nh, T, hs)
+        scale_factor = 1 / math.sqrt(hs) if scale is None else scale
+        attn_bias = torch.zeros(T, T, dtype=value.dtype, device=value.device) # will broadcast over the batch dimension later
+        if is_causal:
+            assert attn_mask is None
+            temp_mask = torch.ones(T, T, dtype=torch.bool, device=value.device).tril(diagonal=0)
+            attn_bias.masked_fill_(temp_mask.logical_not(), float("-inf"))
+            attn_bias.to(value.dtype)
+
+        if attn_mask is not None:
+            if attn_mask.dtype == torch.bool:
+                attn_bias.masked_fill_(attn_mask.logical_not(), float("-inf"))
+            else:
+                attn_bias += attn_mask
+        attn_weight = xt @ qk_t.transpose(-2, -1)  * scale_factor # penultimo della prima si scontra con l'ultimo della seconda
+        attn_weight += attn_bias # broadcasted over the batch dimension
+        attn_weight = torch.softmax(attn_weight, dim=-1)
+        attn_weight = torch.dropout(attn_weight, dropout_p, train=True) # wtf, why is dropout True? # TODO: check if this is correct
+        return attn_weight @ value
 
     def forward(self, xt):
         B, T, C = xt.size()  # batch size, sequence length, embedding dimensionality (n_embd)
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
         # nh is "number of heads", hs is "head size", and C (number of channels) = nh * hs
         # e.g. in GPT-2 (124M), n_head=12, hs=64, so nh*hs=C=768 channels in the Transformer
-        qkv = self.c_attn(xt)
-        q, k, v = qkv.split(self.n_embd, dim=2)
-        k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
-        q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
+        qk_tv = self.compressed_attention(xt)
+        qk_t, v = qk_tv.split(self.n_embd, dim=2)
+        qk_t = qk_t.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
-        y = self.new_scaled_dot_product_attention(q, k, v, is_causal=True)  # flash attention
+        xt = xt.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
+        y = self.compressed_dot_product_attention(xt, qk_t, v, is_causal=True)  # compressed attention
         y = y.transpose(1, 2).contiguous().view(B, T, C)  # re-assemble all head outputs side by side
         # output projection
         y = self.c_proj(y)
@@ -141,12 +174,13 @@ if __name__ == '__main__':
         # set a seed for reproducibility
         torch.manual_seed(42)
         block = Block(config).to(device)
-        x = torch.randn(1, 10, config.n_embd).to(device)
+        x = torch.randn(1, 10, config.n_embd, device=device)
+        x = block(x)
         # time the block function
         with torch.autograd.profiler.profile(use_cuda=False) as profiler:
             for i in range(10):
                 x = block(x)
-        print(profiler.key_averages().table(sort_by="cpu_time_total"))
+        print(profiler.key_averages().table(sort_by="self_cpu_time_total"))
         print(x.shape)
 
     explore_block_speed()
