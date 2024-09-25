@@ -30,9 +30,9 @@ class DecoderConfig:
     block_size: int = 1024  # max sequence length
     vocab_size: int = 50257  # number of tokens: 50,000 BPE merges + 256 bytes tokens + 1 <|endoftext|> token
     n_layer: int = 12  # number of layers
-    n_head: int = 12  # number of heads
+    n_head: int = 16  # number of heads. ATTENTION: THIS NUMBER MUST DIVIDE BOTH N_EMBD AND CONCEPT EMBEDDING DIMENSION
     n_embd: int = 768  # embedding dimension
-
+    concept_embedding_dim: int = 1024  # embedding dimension for concepts
 @dataclass
 class LCMConfig:
     core_config: CoreLCMConfig
