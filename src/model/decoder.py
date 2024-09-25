@@ -14,16 +14,18 @@ class Decoder(nn.Module):
     The decoder for now is a simple transformer that takes a sequence of concepts and a sequence of tokens and
     predicts the next token in the sequence.
     """
+
     def __init__(self, config):
         super().__init__()
         self.config = config
 
         self.transformer = nn.ModuleDict(dict(
             wte=nn.Embedding(config.vocab_size, config.n_embd),
-            wpe=nn.Embedding(config.block_size, config.n_embd), # only 8/9 of the block will be made of tokens
-            cpe=nn.Embedding(config.block_size, config.concept_embedding_dim), # only 1/9 of the block will be made of concepts
+            wpe=nn.Embedding(config.block_size, config.n_embd),  # only 8/9 of the block will be made of tokens
+            cpe=nn.Embedding(config.block_size, config.concept_embedding_dim),
+            # only 1/9 of the block will be made of concepts
             h=nn.ModuleList([GeneralBlock(config) for _ in range(config.n_layer)]),
-            ln_t = nn.LayerNorm(config.n_embd)
+            ln_t=nn.LayerNorm(config.n_embd)
         ))
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
@@ -132,7 +134,8 @@ class Decoder(nn.Module):
                     sd[k].copy_(sd_hf[k])
 
         # copy the embeddings for concept positional encoding
-        sd['transformer.cpe.weight'].copy_(sd['transformer.wpe.weight']) # slight abuse since there is no reason to share the weights
+        sd['transformer.cpe.weight'].copy_(
+            sd['transformer.wpe.weight'])  # slight abuse since there is no reason to share the weights
 
         return model
 
@@ -163,15 +166,15 @@ class Decoder(nn.Module):
         optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=(0.9, 0.95), eps=1e-8, fused=use_fused)
         return optimizer
 
-if __name__ == "__main__":
 
+if __name__ == "__main__":
     def test_forward():
         model = Decoder(DecoderConfig())
         # create the tokens ground truth of shape (25)
         text = torch.randint(0, 50257, (25,)).long()
 
-        tokens = text[:-1].view(6,4)
-        target_tokens = text[1:].view(6,4)
+        tokens = text[:-1].view(6, 4)
+        target_tokens = text[1:].view(6, 4)
         concepts = torch.randn(6, 4, 1024)
 
         logits, loss = model(tokens, concepts, target_tokens)

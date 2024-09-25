@@ -10,10 +10,11 @@ from src.model.config import DecoderConfig
 class GeneralCausalSelfAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
-        assert config.n_embd % config.n_head == 0 # I would call the n_embed the single head dimensionality, and then multiply by heads to get the total dimensionality.
+        assert config.n_embd % config.n_head == 0  # I would call the n_embed the single head dimensionality, and then multiply by heads to get the total dimensionality.
         # matrices that will create all the Q,K,V matrices. they are made from a single contiguous matrix in memory to speed up access
-        self.general_token_attention = nn.Linear(config.n_embd, config.n_embd + 3*config.concept_embedding_dim)
-        self.general_concept_attention = nn.Linear(config.concept_embedding_dim, config.n_embd + 3*config.concept_embedding_dim)
+        self.general_token_attention = nn.Linear(config.n_embd, config.n_embd + 3 * config.concept_embedding_dim)
+        self.general_concept_attention = nn.Linear(config.concept_embedding_dim,
+                                                   config.n_embd + 3 * config.concept_embedding_dim)
 
         # dimensions
         self.n_head = config.n_head
@@ -26,6 +27,7 @@ class GeneralCausalSelfAttention(nn.Module):
 
         self.t_proj = nn.Linear(config.n_embd, config.n_embd)
         self.t_proj.NANOGPT_SCALE_INIT = 1
+
     """
     FUNCTIONING IMPLEMENTATION WITH 3 MATRICES
     def forward(self, xt):
@@ -118,9 +120,11 @@ class GeneralCausalSelfAttention(nn.Module):
         y = self.c_proj(y)
         return y
         """
+
     # TODO: FINISH IMPLEMENTATION
     def general_compressed_dot_product_attention(self, xt, xc, Qt_tKt, Qc_tKt, Vt, Qt_tKc, Qc_tKc, Vc, attn_mask=None,
-                                      dropout_p=0.0, is_causal=False, token_scale=None, concept_scale = None) -> torch.Tensor:
+                                                 dropout_p=0.0, is_causal=False, token_scale=None,
+                                                 concept_scale=None) -> torch.Tensor:
         '''
         Shape legend:
         - :math:`N: \text{Batch size} ... : \text{Any number of other batch dimensions (optional)}`
@@ -132,7 +136,7 @@ class GeneralCausalSelfAttention(nn.Module):
         B, nh, T, hs = Vt.shape  # (B, nh, T, hs)
         Bc, nhc, C, hsc = Vc.shape  # (B, nh, C, hs)
         assert T == C, f"Token and concept sequence length must be the same, got {T} and {C}"
-        assert nhc == nh, f"Number of heads for tokens and concepts must be the same, got {nh} and {nhc}" # head dimensionality does not need to be equal
+        assert nhc == nh, f"Number of heads for tokens and concepts must be the same, got {nh} and {nhc}"  # head dimensionality does not need to be equal
 
         token_scale_factor = 1 / math.sqrt(hs) if token_scale is None else token_scale
         concept_scale_factor = 1 / math.sqrt(hsc) if concept_scale is None else concept_scale
@@ -151,12 +155,11 @@ class GeneralCausalSelfAttention(nn.Module):
                 attn_bias += attn_mask
         # attn_weight = xt @ qk_t.transpose(-2,
         #                                 -1) * scale_factor  # penultimo della prima si scontra con l'ultimo della seconda
-        #attn_weight += attn_bias  # broadcasted over the batch dimension
-        #attn_weight = torch.softmax(attn_weight, dim=-1)
-        #attn_weight = torch.dropout(attn_weight, dropout_p,
+        # attn_weight += attn_bias  # broadcasted over the batch dimension
+        # attn_weight = torch.softmax(attn_weight, dim=-1)
+        # attn_weight = torch.dropout(attn_weight, dropout_p,
         #                       train=True)  # wtf, why is dropout True? # TODO: check if this is correct
-        #return attn_weight @ value
-
+        # return attn_weight @ value
 
     # now writing the attention kernel for concepts
     def forward(self, xt, xc):
@@ -164,8 +167,8 @@ class GeneralCausalSelfAttention(nn.Module):
         General forward of the attention block for both concepts and tokens
         """
 
-        B, T, D = xt.size() # batch size, tokens length, embedding dimensionality (n_embd)
-        Bc, C, Dc = xc.size() # batch size, concepts length, embedding dimensionality (n_embd)
+        B, T, D = xt.size()  # batch size, tokens length, embedding dimensionality (n_embd)
+        Bc, C, Dc = xc.size()  # batch size, concepts length, embedding dimensionality (n_embd)
         assert B == Bc, f"Batch size for tokens and concepts must be the same, got {B} and {Bc}"
 
         # in our general implementation Vt, Qt_tkt and Qc_tkt will be multiplied by the tokens while the others will be multiplied by the concepts
@@ -173,8 +176,10 @@ class GeneralCausalSelfAttention(nn.Module):
         all_concept_matrices = self.general_concept_attention(xc)
 
         # MATRICES FOR THE FLASH ATTENTION IMPLEMENTATION
-        Qct, Kct, Vct, Vtt = all_token_matrices.split([self.concept_embedding_dim, self.concept_embedding_dim, self.concept_embedding_dim, self.n_embd], dim=2)
-        Qcc, Kcc, Vtc, Vcc = all_concept_matrices.split([self.concept_embedding_dim, self.concept_embedding_dim, self.n_embd, self.concept_embedding_dim ], dim=2)
+        Qct, Kct, Vct, Vtt = all_token_matrices.split(
+            [self.concept_embedding_dim, self.concept_embedding_dim, self.concept_embedding_dim, self.n_embd], dim=2)
+        Qcc, Kcc, Vtc, Vcc = all_concept_matrices.split(
+            [self.concept_embedding_dim, self.concept_embedding_dim, self.n_embd, self.concept_embedding_dim], dim=2)
 
         # reshaping the matrices
         Qct = Qct.view(B, T, self.n_head, Dc // self.n_head).transpose(1, 2)
@@ -201,10 +206,10 @@ class GeneralCausalSelfAttention(nn.Module):
         """
 
         # now we have to calculate the attention with flash attention for the tokens and the concepts
-        xtt = F.scaled_dot_product_attention(Qct, Kct, Vtt, is_causal=True)# flash attention
-        xtc = F.scaled_dot_product_attention(Qct, Kcc, Vtc, is_causal=False)# flash attention
-        xct = F.scaled_dot_product_attention(Qcc, Kcc, Vct, is_causal=True)# flash attention
-        xcc = F.scaled_dot_product_attention(Qcc, Kcc, Vcc, is_causal=False)# flash attention
+        xtt = F.scaled_dot_product_attention(Qct, Kct, Vtt, is_causal=True)  # flash attention
+        xtc = F.scaled_dot_product_attention(Qct, Kcc, Vtc, is_causal=False)  # flash attention
+        xct = F.scaled_dot_product_attention(Qcc, Kcc, Vct, is_causal=True)  # flash attention
+        xcc = F.scaled_dot_product_attention(Qcc, Kcc, Vcc, is_causal=False)  # flash attention
 
         xt_embed = xtt + xtc
         xc_embed = xct + xcc
@@ -218,6 +223,7 @@ class GeneralCausalSelfAttention(nn.Module):
         xc = self.c_proj(xc_new)
 
         return xt, xc
+
 
 class MLP(nn.Module):
     def __init__(self, config):
@@ -261,6 +267,7 @@ class GeneralBlock(nn.Module):
         xc = xc + mlp_xc
         return xt, xc
 
+
 if __name__ == '__main__':
     def test_new_block_equals_gpt_block():
         from src.model.config import GPTConfig
@@ -288,6 +295,7 @@ if __name__ == '__main__':
         print(profiler_gpt.key_averages().table(sort_by="cpu_time_total"))
         assert (torch.allclose(yc, y))
 
+
     def explore_block_speed():
         from src.model.config import GPTConfig, DecoderConfig
         import torch
@@ -308,8 +316,9 @@ if __name__ == '__main__':
         print(profiler.key_averages().table(sort_by="self_cpu_time_total"))
         print(x.shape)
 
+
     def test_attention():
-        from src.model.config import  DecoderConfig
+        from src.model.config import DecoderConfig
         import torch
         config = DecoderConfig()
 

@@ -1,34 +1,32 @@
 import math
 import os
 import time
-from dataclasses import dataclass
 
-import numpy as np
 import torch
-from torch.nn import functional as F
-
-
-from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT, CoreLCMConfig, DecoderConfig
-from src.model.lower_lcm import Lower_LCM
-from src.train.train_config import TrainerConfig, setup_ddp, create_log_file_and_dir
-from src.train.data_loader import DataLoaderLite
-from src.benchmark.hellaswag_lcm import evaluate_lower_lcm
-# -----------------------------------------------------------------------------
-# simple launch:
-# python train_lcm.py
-# DDP launch for e.g. 4 GPUs:
-# torchrun --standalone --nproc_per_node=4 train_decoder.py
 
 # distributed computing imports
 from torch.distributed import destroy_process_group
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
 
+from src.model.config import N_TOKENS_PER_CONCEPT, DecoderConfig
+from src.model.decoder import Decoder
+from src.train.data_loader import DataLoaderWithConcepts
+from src.train.train_config import TrainerConfig, setup_ddp, create_log_file_and_dir
+
+
+# -----------------------------------------------------------------------------
+# simple launch:
+# python train_lcm.py
+# DDP launch for e.g. 4 GPUs:
+# torchrun --standalone --nproc_per_node=4 train_decoder.py
+
 # importing this class seems to take a lot of time
 class Trainer:
     def __init__(self, model, config):
         self.ddp, self.ddp_rank, self.ddp_local_rank, self.ddp_world_size, self.master_process, self.device = setup_ddp()
-        self.device_type = "cuda" if self.device.startswith("cuda") else "mps" if torch.backends.mps.is_built() else "cpu"
+        self.device_type = "cuda" if self.device.startswith(
+            "cuda") else "mps" if torch.backends.mps.is_built() else "cpu"
 
         torch.manual_seed(config.seed)
         if torch.cuda.is_available():
@@ -42,29 +40,31 @@ class Trainer:
             print(f"=> calculated gradient accumulation steps: {self.grad_accum_steps}")
 
         # data loaders
-        self.train_loader = DataLoaderLite(
+        self.train_loader = DataLoaderWithConcepts(
             B=config.B,
             T=config.T,
             process_rank=self.ddp_rank,
             num_processes=self.ddp_world_size,
             split="train",
-            master_process=self.master_process
+            master_process=self.master_process,
+            device=self.device
         )
 
-        self.val_loader = DataLoaderLite(
+        self.val_loader = DataLoaderWithConcepts(
             B=config.B,
             T=config.T,
             process_rank=self.ddp_rank,
             num_processes=self.ddp_world_size,
             split="val",
-            master_process=self.master_process
+            master_process=self.master_process,
+            device=self.device
         )
 
         # create model
         torch.set_float32_matmul_precision('high')
         self.model = model
         model.to(self.device)
-        self.use_compile = config.use_compile # torch.compile interferes with HellaSwag eval and Generation. TODO fix
+        self.use_compile = config.use_compile  # torch.compile interferes with HellaSwag eval and Generation. TODO fix
         if self.use_compile:
             model = torch.compile(model)
         if self.ddp:
@@ -92,7 +92,6 @@ class Trainer:
         self.eval_model_inference_freq = config.eval_model_inference_freq
         self.checkpoint_freq = config.checkpoint_freq
 
-
     def get_lr(self, it):
         # 1) linear warmup for warmup_iters steps
         if it < self.warmup_steps:
@@ -112,7 +111,7 @@ class Trainer:
             last_step = (step == self.max_steps - 1)
 
             # once in a while evaluate our validation loss
-            if (step % self.eval_freq == 0  and step !=0) or last_step:
+            if (step % self.eval_freq == 0 and step != 0) or last_step:
                 self.eval(step, last_step)
 
             # once in a while evaluate hellaswag # TODO: write hellaswag eval for LCM
@@ -148,7 +147,8 @@ class Trainer:
         # optionally write model checkpoints
         from src.model.config import CoreLCMConfig as conf
         checkpoint_path = os.path.join(
-            self.log_dir,f"lower_lcm_ntc-{conf.n_tokens_per_concept}_nlayer-{conf.n_layer}_nhead-{conf.n_head}_n_embd-{conf.n_embd}_step-{step:05d}.pt")
+            self.log_dir,
+            f"lower_lcm_ntc-{conf.n_tokens_per_concept}_nlayer-{conf.n_layer}_nhead-{conf.n_head}_n_embd-{conf.n_embd}_step-{step:05d}.pt")
 
         checkpoint = {
             'model': self.raw_model.state_dict(),
@@ -166,20 +166,21 @@ class Trainer:
         self.val_loader.reset()
         with torch.no_grad():
             val_loss_accum = 0.0
-            val_loss_steps = self.eval_n_examples # TODO: change before training to 20
-            for _ in range(val_loss_steps):
-                x, y = self.val_loader.next_batch()
-                x, y = x.to(self.device), y.to(self.device)
+            for _ in range(self.eval_n_examples):
+                x, y, concepts = self.val_loader.next_batch()
+                x, y, concepts = x.to(self.device), y.to(self.device), concepts.to(
+                    self.device)  # TODO: this should already be on device after changing the data loader
                 if self.device_type == "cuda" or self.device_type == "cpu":
-                    with torch.autocast(device_type=self.device_type, dtype=torch.bfloat16): # bfloat16 is faster for evaluation
-                        logits, loss = model(x,target=y)
+                    with torch.autocast(device_type=self.device_type,
+                                        dtype=torch.bfloat16):  # bfloat16 is faster for evaluation
+                        logits, loss = model(x, concepts, target_tokens=y)
                 elif self.device_type == "mps":
-                        logits, loss = model(x,target=y) # MPS does not support bfloat16
+                    logits, loss = model(x, concepts, target_tokens=y)  # MPS does not support bfloat16
 
                 else:
                     raise ValueError(f"device_type {self.device_type} not supported")
 
-                average_loss = loss / val_loss_steps
+                average_loss = loss / self.eval_n_examples
                 val_loss_accum += average_loss.detach()
 
         if self.ddp:
@@ -191,7 +192,6 @@ class Trainer:
             if step > 0 and (step % self.checkpoint_freq == 0 or last_step):
                 self.save_checkpoint(step, val_loss_accum)
 
-
     def optimize_one_step(self, step):
         model.train()
         self.optimizer.zero_grad()
@@ -200,13 +200,14 @@ class Trainer:
             print('.', end='', flush=True)
             x, y = self.train_loader.next_batch()
             x, y = x.to(self.device), y.to(self.device)
+            concepts = x[:, :N_TOKENS_PER_CONCEPT, :]
 
             # this field is also used by the forward pass.
             if self.ddp:
                 model.require_backward_grad_sync = (micro_step == self.grad_accum_steps - 1)
 
             if self.device_type == "cuda" or self.device_type == "cpu":
-                with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
+                with torch.autocast(device_type=self.device_type, dtype=torch.bfloat16):
                     logits, loss = model(x, y)
             elif self.device_type == "mps":
                 logits, loss = model(x, y)
@@ -236,6 +237,6 @@ class Trainer:
 
 
 if __name__ == "__main__":
-    model = Lower_LCM(config_core=CoreLCMConfig())
+    model = Decoder(DecoderConfig())
     trainer = Trainer(model, TrainerConfig())
     trainer.run()
