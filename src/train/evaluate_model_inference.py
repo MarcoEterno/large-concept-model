@@ -8,6 +8,13 @@ from src.train.hellaswag import render_example, iterate_examples
 
 
 def sample_model_inference(trainer: Trainer, step):
+    """
+    Print to stdout the output of the model
+
+    Args:
+    - trainer: Trainer object
+    - step: int, the current step
+    """
     trainer.model.eval()
     num_return_sequences = 4
     max_length = 32
@@ -41,7 +48,7 @@ def sample_model_inference(trainer: Trainer, step):
     for i in range(num_return_sequences):
         tokens = xgen[i, :max_length].tolist()
         decoded = trainer.model.encoder.decode(tokens)
-        print(f"rank {trainer.ddp_rank} sample {i}: {decoded}")
+        print(f"rank {trainer.ddp_rank} step {step} sample {i}: {decoded}")
 
 def eval_hellaswag(trainer: Trainer, step):
     num_correct_norm = 0

@@ -6,7 +6,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 from src.model.config import DecoderConfig
-from src.model.gpt_block import Block
+from src.model.block_kernel import GeneralBlock
 
 
 class Decoder(nn.Module):
@@ -21,9 +21,9 @@ class Decoder(nn.Module):
         self.transformer = nn.ModuleDict(dict(
             wte=nn.Embedding(config.vocab_size, config.n_embd),
             wpe=nn.Embedding(config.block_size, config.n_embd), # only 8/9 of the block will be made of tokens
-            cpe=nn.Embedding(config.block_size, config.n_embd), # only 1/9 of the block will be made of concepts
-            h=nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
-            ln_f=nn.LayerNorm(config.n_embd),
+            cpe=nn.Embedding(config.block_size, config.concept_embedding_dim), # only 1/9 of the block will be made of concepts
+            h=nn.ModuleList([GeneralBlock(config) for _ in range(config.n_layer)]),
+            ln_t = nn.LayerNorm(config.n_embd)
         ))
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
@@ -44,8 +44,10 @@ class Decoder(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, concepts, tokens, targets=None):
+    def forward(self, tokens, concepts, target_tokens=None):
         """
+        Predict the next token in the sequence given the current sequence of tokens and concepts.
+
         For now, the forward method allows for block sizes that are double of the token block size.
         in practice, given that concepts are far less than tokens, the maximum block size will be Block_Size * (N_tc + 1)/N_tc
         """
@@ -54,30 +56,28 @@ class Decoder(nn.Module):
         assert T <= self.config.block_size, f"Cannot forward sequence of length {T}, block size is only {self.config.block_size}"
         # forward the token and position embeddings
         pos = torch.arange(0, T, dtype=torch.long, device=tokens.device)  # shape (T)
-        pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (T, n_embd)
+        token_pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (T, n_embd)
         tok_emb = self.transformer.wte(tokens)  # token embeddings of shape (B, T, n_embd)
-        xt = tok_emb + pos_emb
+        xt = tok_emb + token_pos_emb
 
         # concepts (B, C, D) are vectors
-        B, C, D = concepts.size()
+        B, C, Dc = concepts.size()
         assert C <= self.config.block_size, f"Cannot forward sequence of concepts of length {C}, block size is only {self.config.block_size}"
         # forward the token and position embeddings
         pos = torch.arange(0, C, dtype=torch.long, device=tokens.device)  # shape (C)
-        pos_emb = self.transformer.cpe(pos)  # position embeddings of shape (C, n_embd)
-        xc = concepts + pos_emb
-
-        # concatenate the concepts and tokens
-        x = torch.cat([xc, xt], dim=1)  # (B, C + T, D)
+        concept_pos_emb = self.transformer.cpe(pos)  # position embeddings of shape (C, n_embd)
+        xc = concepts + concept_pos_emb
 
         # forward the blocks of the transformer
         for block in self.transformer.h:
-            x = block(x)
-        # forward the final layernorm and the classifier
-        x = self.transformer.ln_f(x)
-        logits = self.lm_head(x)  # (B, T, vocab_size)
+            xt, xc = block(xt, xc)
+
+        # forward the final layer norm and the classifier
+        xt = self.transformer.ln_t(xt)
+        logits = self.lm_head(xt)  # (B, T, vocab_size)
         loss = None
-        if targets is not None:
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
+        if target_tokens is not None:
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), target_tokens.view(-1))
         return logits, loss
 
     # TODO: substitute with load from checkpoint
@@ -164,8 +164,22 @@ class Decoder(nn.Module):
         return optimizer
 
 if __name__ == "__main__":
-    model = Decoder.from_pretrained('gpt2')
-    print(model)
+
+    def test_forward():
+        model = Decoder(DecoderConfig())
+        # create the tokens ground truth of shape (25)
+        text = torch.randint(0, 50257, (25,)).long()
+
+        tokens = text[:-1].view(6,4)
+        target_tokens = text[1:].view(6,4)
+        concepts = torch.randn(6, 4, 1024)
+
+        logits, loss = model(tokens, concepts, target_tokens)
+        print(logits.shape, loss)
+
+
+    model = Decoder(DecoderConfig())
     optimizer = model.configure_optimizers(0.1, 0.1, 'cuda')
-    print(optimizer)
-    print("done")
+    print("done initializing")
+
+    test_forward()

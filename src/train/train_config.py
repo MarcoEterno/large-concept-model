@@ -16,11 +16,14 @@ class TrainerConfig:
     B: int = 4 * N_TOKENS_PER_CONCEPT  # micro batch size
     T: int = 1024  # sequence length, was 1024 in GPT-2
 
-    # TODO: change or cloud run!
+    # TODO: change for cloud run!
     eval_freq: int = 2
+    eval_n_examples:int = 20
     eval_hellaswag_freq: int = 2
     eval_hellaswag_compression: int = 100 # TODO set to 1 for final run
     eval_model_inference_freq: int = 2
+
+
     checkpoint_freq: int= 2
 
     max_lr: float = 1e-3 # 6e-4 is the default for GPT-2

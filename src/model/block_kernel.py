@@ -4,13 +4,14 @@ from torch import nn
 from torch.nn import functional as F
 import torch
 
+from src.model.config import DecoderConfig
+
+
 class GeneralCausalSelfAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
         assert config.n_embd % config.n_head == 0 # I would call the n_embed the single head dimensionality, and then multiply by heads to get the total dimensionality.
-        # key, query, value projections for all heads, but in a batch
-        # self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd)
-        # self.compressed_attention = nn.Linear(config.n_embd, 2*config.n_embd)
+        # matrices that will create all the Q,K,V matrices. they are made from a single contiguous matrix in memory to speed up access
         self.general_token_attention = nn.Linear(config.n_embd, config.n_embd + 3*config.concept_embedding_dim)
         self.general_concept_attention = nn.Linear(config.concept_embedding_dim, config.n_embd + 3*config.concept_embedding_dim)
 
@@ -202,7 +203,7 @@ class GeneralCausalSelfAttention(nn.Module):
         # now we have to calculate the attention with flash attention for the tokens and the concepts
         xtt = F.scaled_dot_product_attention(Qct, Kct, Vtt, is_causal=True)# flash attention
         xtc = F.scaled_dot_product_attention(Qct, Kcc, Vtc, is_causal=False)# flash attention
-        xct = F.scaled_dot_product_attention(Qcc, Kcc, Vct, is_causal=False)# flash attention
+        xct = F.scaled_dot_product_attention(Qcc, Kcc, Vct, is_causal=True)# flash attention
         xcc = F.scaled_dot_product_attention(Qcc, Kcc, Vcc, is_causal=False)# flash attention
 
         xt_embed = xtt + xtc
@@ -241,19 +242,6 @@ class MLP(nn.Module):
         return xt, xc
 
 
-class Block(nn.Module):
-    def __init__(self, config):
-        super().__init__()
-        self.ln_1 = nn.LayerNorm(config.n_embd)
-        self.attn = GeneralCausalSelfAttention(config)
-        self.ln_2 = nn.LayerNorm(config.n_embd)
-        self.mlp = MLP(config)
-
-    def forward(self, x):
-        x = x + self.attn(self.ln_1(x))
-        x = x + self.mlp(self.ln_2(x))
-        return x
-
 class GeneralBlock(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -285,7 +273,7 @@ if __name__ == '__main__':
 
         # set a seed for reproducibility
         torch.manual_seed(42)
-        block = Block(config).to(device)
+        block = GeneralBlock(config).to(device)
         torch.manual_seed(42)
         gpt_block = GPTBlock(config).to(device)
         x = torch.randn(1, 10, config.n_embd).to(device)
@@ -301,16 +289,16 @@ if __name__ == '__main__':
         assert (torch.allclose(yc, y))
 
     def explore_block_speed():
-        from src.model.config import GPTConfig
+        from src.model.config import GPTConfig, DecoderConfig
         import torch
-        config = GPTConfig()
+        config = DecoderConfig
 
         device = "mps" if torch.backends.mps.is_built() else "cuda" if torch.cuda.is_available() else "cpu"
         print(f"Using device: {device}")
 
         # set a seed for reproducibility
         torch.manual_seed(42)
-        block = Block(config).to(device)
+        block = GeneralBlock(config).to(device)
         x = torch.randn(1, 10, config.n_embd, device=device)
         x = block(x)
         # time the block function
