@@ -1,10 +1,11 @@
 import math
 
 from torch import nn
+from torch.jit.frontend import node_start_tokens
 from torch.nn import functional as F
 import torch
 
-from src.model.config import DecoderConfig
+from src.model.config import DecoderConfig, N_TOKENS_PER_CONCEPT
 
 
 class GeneralCausalSelfAttention(nn.Module):
@@ -161,6 +162,28 @@ class GeneralCausalSelfAttention(nn.Module):
         #                       train=True)  # wtf, why is dropout True? # TODO: check if this is correct
         # return attn_weight @ value
 
+    def new_scaled_dot_product_attention(self, query, key, value, attn_mask=None, dropout_p=0.0, is_causal=False,
+                                         scale=None) -> torch.Tensor:
+        L, S = query.size(-2), key.size(-2)
+        scale_factor = 1 / math.sqrt(query.size(-1)) if scale is None else scale
+        attn_bias = torch.zeros(L, S, dtype=query.dtype, device=query.device)
+        if is_causal:
+            assert attn_mask is None
+            temp_mask = torch.ones(L, S, dtype=torch.bool, device=query.device).tril(diagonal=0)
+            attn_bias.masked_fill_(temp_mask.logical_not(), float("-inf"))
+            attn_bias.to(query.dtype)
+
+        if attn_mask is not None:
+            if attn_mask.dtype == torch.bool:
+                attn_bias.masked_fill_(attn_mask.logical_not(), float("-inf"))
+            else:
+                attn_bias += attn_mask
+        attn_weight = query @ key.transpose(-2, -1) * scale_factor
+        attn_weight += attn_bias
+        attn_weight = torch.softmax(attn_weight, dim=-1)
+        attn_weight = torch.dropout(attn_weight, dropout_p, train=True)
+        return attn_weight @ value
+
     # now writing the attention kernel for concepts
     def forward(self, xt, xc):
         """
@@ -206,9 +229,11 @@ class GeneralCausalSelfAttention(nn.Module):
         """
 
         # now we have to calculate the attention with flash attention for the tokens and the concepts
+        mask_tc = create_causal_attention_mask(B, N_TOKENS_PER_CONCEPT, T, C, device=xt.device)
+        mask_ct = create_causal_attention_mask(B, N_TOKENS_PER_CONCEPT, C, T, device=xt.device)
         xtt = F.scaled_dot_product_attention(Qct, Kct, Vtt, is_causal=True)  # flash attention
-        xtc = F.scaled_dot_product_attention(Qct, Kcc, Vtc, is_causal=False)  # flash attention
-        xct = F.scaled_dot_product_attention(Qcc, Kct, Vct, is_causal=False)  # flash attention
+        xtc = self.new_scaled_dot_product_attention(Qct, Kcc, Vtc, attn_mask=mask_tc) #F.scaled_dot_product_attention(Qct, Kcc, Vtc, is_causal=False)  # flash attention
+        xct = self.new_scaled_dot_product_attention(Qcc, Kct, Vct, attn_mask=mask_ct) #F.scaled_dot_product_attention(Qcc, Kct, Vct, is_causal=False)  # flash attention
         xcc = F.scaled_dot_product_attention(Qcc, Kcc, Vcc, is_causal=True)  # flash attention
 
         xt_embed = xtt + xtc
@@ -267,8 +292,59 @@ class GeneralBlock(nn.Module):
         xc = xc + mlp_xc
         return xt, xc
 
+def create_causal_attention_mask(B, n_tokens_per_concept, n_rows, n_cols, device):
+    """
+    Create a causal attention mask for the given dimensions.
+
+    Args:
+        B: Batch size
+        n_tokens_per_concept: Number of tokens per concept
+        n_rows: Number of rows
+        n_cols: Number of columns
+        device: Device to use
+
+    Returns:
+        T: torch.tensor: Causal attention mask of shape (n_rows, n_cols)
+    """
+
+    # Precompute index tensors if I and J are constant
+    i_indices = torch.arange(n_rows, dtype=torch.int32, device=device).unsqueeze(1)  # Shape: (I, 1)
+    j_indices = torch.arange(n_cols, dtype=torch.int32, device=device).unsqueeze(0)  # Shape: (1, J)
+
+    T = (i_indices < n_tokens_per_concept * (j_indices + 1)).bool()
+
+    return T#.unsqueeze(0).expand(B, -1, -1)
+
 
 if __name__ == '__main__':
+    def test_create_causal_attention_mask():
+        B = 1
+        num_rows = 20
+        num_columns = 5
+        n_tokens_per_concept = 4
+        device = 'mps' if torch.backends.mps.is_built() else 'cuda' if torch.cuda.is_available() else 'cpu'
+        mask = create_causal_attention_mask(B, n_tokens_per_concept, num_rows, num_columns, device)
+        print(mask)
+
+        config = DecoderConfig()
+
+        device = "mps" if torch.backends.mps.is_built() else "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"Using device: {device}")
+
+        # set a seed for reproducibility
+        torch.manual_seed(42)
+
+        block = GeneralBlock(config).to(device)
+        xt = torch.randn(1, 10, config.n_embd, device=device)
+        xc = torch.randn(1, 10, config.concept_embedding_dim, device=device)
+        xt, xc = block(xt, xc)
+        # time the block function
+        with torch.autograd.profiler.profile(use_cuda=False) as profiler:
+            for i in range(10):
+                xt, xc = block(xt, xc)
+        print(profiler.key_averages().table(sort_by="self_cpu_time_total"))
+        print(xt.shape, xc.shape)
+
     def test_new_block_equals_gpt_block():
         from src.model.config import GPTConfig
         from src.model.gpt_block import Block as GPTBlock
@@ -340,4 +416,4 @@ if __name__ == '__main__':
         print(xt.shape, xc.shape)
 
 
-    test_attention()
+    test_create_causal_attention_mask()
