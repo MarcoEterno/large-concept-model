@@ -13,15 +13,15 @@ from src.model.config import N_TOKENS_PER_CONCEPT, DATA_ROOT_PATH
 @dataclass
 class TrainerConfig:
     total_batch_size: int = 524288  # 2**19, ~0.5M, in number of tokens
-    B: int = 4 * N_TOKENS_PER_CONCEPT  # micro batch size
+    B: int = 2 * N_TOKENS_PER_CONCEPT  # micro batch size
     T: int = 1024  # sequence length, was 1024 in GPT-2
 
     # TODO: change for cloud run!
-    eval_freq: int = 2
+    eval_freq: int = 10
     eval_n_examples:int = 20
-    eval_hellaswag_freq: int = 2
-    eval_hellaswag_compression: int = 100 # TODO set to 1 for final run
-    eval_model_inference_freq: int = 2
+    eval_hellaswag_freq: int = 1
+    eval_hellaswag_compression: int = 1 # TODO set to 1 for final run
+    eval_model_inference_freq: int = 500
 
 
     checkpoint_freq: int= 2

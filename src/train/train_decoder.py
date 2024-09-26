@@ -1,6 +1,7 @@
 import math
 import os
 import time
+from distutils.command.config import config
 
 import torch
 
@@ -145,10 +146,10 @@ class Trainer:
 
     def save_checkpoint(self, step, val_loss_accum):
         # optionally write model checkpoints
-        from src.model.config import CoreLCMConfig as conf
+        from src.model.config import DecoderConfig as conf
         checkpoint_path = os.path.join(
             self.log_dir,
-            f"lower_lcm_ntc-{conf.n_tokens_per_concept}_nlayer-{conf.n_layer}_nhead-{conf.n_head}_n_embd-{conf.n_embd}_step-{step:05d}.pt")
+            f"decoder_ntc-{conf.n_tokens_per_concept}_nlayer-{conf.n_layer}_nhead-{conf.n_head}_n_embd-{conf.n_embd}-concept_dim{conf.concept_embedding_dim}step-{step:05d}.pt")
 
         checkpoint = {
             'model': self.raw_model.state_dict(),
@@ -198,19 +199,22 @@ class Trainer:
         loss_accum = 0.0
         for micro_step in range(self.grad_accum_steps):
             print('.', end='', flush=True)
-            x, y = self.train_loader.next_batch()
-            x, y = x.to(self.device), y.to(self.device)
-            concepts = x[:, :N_TOKENS_PER_CONCEPT, :]
+            x, y, concepts= self.train_loader.next_batch()
+            x, y, concepts = x.to(self.device), y.to(self.device), concepts.to(self.device)
 
             # this field is also used by the forward pass.
             if self.ddp:
                 model.require_backward_grad_sync = (micro_step == self.grad_accum_steps - 1)
 
             if self.device_type == "cuda" or self.device_type == "cpu":
-                with torch.autocast(device_type=self.device_type, dtype=torch.bfloat16):
-                    logits, loss = model(x, y)
+                with torch.autocast(device_type=self.device_type,
+                                    dtype=torch.bfloat16):  # bfloat16 is faster for evaluation
+                    logits, loss = model(x, concepts, target_tokens=y)
             elif self.device_type == "mps":
-                logits, loss = model(x, y)
+                logits, loss = model(x, concepts, target_tokens=y)  # MPS does not support bfloat16
+
+            else:
+                raise ValueError(f"device_type {self.device_type} not supported")
 
             # we have to scale the loss to account for gradient accumulation,
             # because the gradients just add on each successive backward().

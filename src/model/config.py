@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DATA_ROOT_PATH = os.getenv("DATA_ROOT_PATH", str(Path(__file__).parents[2] / "data"))
-N_TOKENS_PER_CONCEPT = 4
+N_TOKENS_PER_CONCEPT = 8
 
 DEVICE = 'mps' if torch.backends.mps.is_built() else 'cuda' if torch.cuda.is_available() else 'cpu'
 TOP_K = 5
@@ -27,6 +27,7 @@ class CoreLCMConfig:
 
 @dataclass
 class DecoderConfig:
+    n_tokens_per_concept: int = N_TOKENS_PER_CONCEPT
     block_size: int = 1024  # max sequence length
     vocab_size: int = 50257  # number of tokens: 50,000 BPE merges + 256 bytes tokens + 1 <|endoftext|> token
     n_layer: int = 12  # number of layers
