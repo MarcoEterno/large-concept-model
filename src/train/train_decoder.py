@@ -22,6 +22,9 @@ from src.train.train_config import TrainerConfig, setup_ddp, create_log_file_and
 # DDP launch for e.g. 4 GPUs:
 # torchrun --standalone --nproc_per_node=4 train_decoder.py
 
+# TODO add tensorboard logging
+
+
 # importing this class seems to take a lot of time
 class Trainer:
     def __init__(self, model, config):

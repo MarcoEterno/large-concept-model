@@ -208,8 +208,8 @@ class GeneralCausalSelfAttention(nn.Module):
         # now we have to calculate the attention with flash attention for the tokens and the concepts
         xtt = F.scaled_dot_product_attention(Qct, Kct, Vtt, is_causal=True)  # flash attention
         xtc = F.scaled_dot_product_attention(Qct, Kcc, Vtc, is_causal=False)  # flash attention
-        xct = F.scaled_dot_product_attention(Qcc, Kct, Vct, is_causal=True)  # flash attention
-        xcc = F.scaled_dot_product_attention(Qcc, Kcc, Vcc, is_causal=False)  # flash attention
+        xct = F.scaled_dot_product_attention(Qcc, Kct, Vct, is_causal=False)  # flash attention
+        xcc = F.scaled_dot_product_attention(Qcc, Kcc, Vcc, is_causal=True)  # flash attention
 
         xt_embed = xtt + xtc
         xc_embed = xct + xcc
