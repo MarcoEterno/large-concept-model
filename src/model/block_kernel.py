@@ -231,6 +231,8 @@ class GeneralCausalSelfAttention(nn.Module):
         # now we have to calculate the attention with flash attention for the tokens and the concepts
         mask_tc = create_causal_attention_mask(B, N_TOKENS_PER_CONCEPT, T, C, device=xt.device)
         mask_ct = create_causal_attention_mask(B, N_TOKENS_PER_CONCEPT, C, T, device=xt.device)
+
+        # attention for tokens and concepts. BE CAREFUL: CODE IS STILL NOT OPTIMIZED, LOGICAL_NOT TAKES 6% OF GPU TIME. EVERYTHING ELSE IS IN ORDER
         xtt = F.scaled_dot_product_attention(Qct, Kct, Vtt, is_causal=True)  # flash attention
         xtc = self.new_scaled_dot_product_attention(Qct, Kcc, Vtc, attn_mask=mask_tc) #F.scaled_dot_product_attention(Qct, Kcc, Vtc, is_causal=False)  # flash attention
         xct = self.new_scaled_dot_product_attention(Qcc, Kct, Vct, attn_mask=mask_ct) #F.scaled_dot_product_attention(Qcc, Kct, Vct, is_causal=False)  # flash attention
@@ -335,7 +337,7 @@ if __name__ == '__main__':
         torch.manual_seed(42)
 
         block = GeneralBlock(config).to(device)
-        xt = torch.randn(1, 10, config.n_embd, device=device)
+        xt = torch.randn(1, 20, config.n_embd, device=device)
         xc = torch.randn(1, 10, config.concept_embedding_dim, device=device)
         xt, xc = block(xt, xc)
         # time the block function
