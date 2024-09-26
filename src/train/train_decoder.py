@@ -1,7 +1,6 @@
 import math
 import os
 import time
-from distutils.command.config import config
 
 import torch
 
@@ -10,11 +9,12 @@ from torch.distributed import destroy_process_group
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
 
+from torch.utils.tensorboard import SummaryWriter
+
 from src.model.config import N_TOKENS_PER_CONCEPT, DecoderConfig
 from src.model.decoder import Decoder
 from src.train.data_loader import DataLoaderWithConcepts
 from src.train.train_config import TrainerConfig, setup_ddp, create_log_file_and_dir
-
 
 # -----------------------------------------------------------------------------
 # simple launch:
@@ -82,6 +82,8 @@ class Trainer:
         )
 
         self.log_file, self.log_dir = create_log_file_and_dir(self)
+        # Initialize TensorBoard SummaryWriter
+        self.writer = SummaryWriter(log_dir=self.log_dir)
 
         # TODO: chage to self.config.---
         self.max_lr = config.max_lr
@@ -143,9 +145,18 @@ class Trainer:
                     f"step {step:5d} | loss: {loss_accum.item():.6f} | lr {lr:.4e} | norm: {norm:.4f} | dt: {dt * 1000:.2f}ms | tok/sec: {tokens_per_sec:.2f}")
                 with open(self.log_file, "a") as f:
                     f.write(f"{step} train {loss_accum.item():.6f}\n")
+                    # Log training metrics to TensorBoard
+                    self.writer.add_scalar('Loss/train', loss_accum.item(), step)
+                    self.writer.add_scalar('Learning_Rate', lr, step)
+                    self.writer.add_scalar('Gradient_Norm', norm, step)
+                    self.writer.add_scalar('Time/step', dt, step)
+                    self.writer.add_scalar('Tokens/second', tokens_per_sec, step)
 
         if self.ddp:
             destroy_process_group()
+
+        # Close the TensorBoard writer
+        self.writer.close()
 
     def save_checkpoint(self, step, val_loss_accum):
         # optionally write model checkpoints
@@ -189,10 +200,11 @@ class Trainer:
 
         if self.ddp:
             dist.all_reduce(val_loss_accum, op=dist.ReduceOp.AVG)
-        if self.master_process:
+        if self.master_process or not self.ddp:
             print(f"validation loss: {val_loss_accum.item():.4f}")
             with open(self.log_file, "a") as f:
                 f.write(f"{step} val {val_loss_accum.item():.4f}\n")
+            self.writer.add_scalar('Loss/val', val_loss_accum.item(), step)
             if step > 0 and (step % self.checkpoint_freq == 0 or last_step):
                 self.save_checkpoint(step, val_loss_accum)
 
