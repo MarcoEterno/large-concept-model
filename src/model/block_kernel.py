@@ -229,8 +229,8 @@ class GeneralCausalSelfAttention(nn.Module):
         """
 
         # now we have to calculate the attention with flash attention for the tokens and the concepts
-        mask_tc = create_causal_attention_mask(B, N_TOKENS_PER_CONCEPT, T, C, device=xt.device)
-        mask_ct = create_causal_attention_mask(B, N_TOKENS_PER_CONCEPT, C, T, device=xt.device)
+        mask_tc = create_causal_attention_mask(B, N_TOKENS_PER_CONCEPT, T, C, device=xt.device) # batch size might probably be avoided due to broadcasting, need to check
+        mask_ct = create_causal_attention_mask(B, N_TOKENS_PER_CONCEPT, C, T, device=xt.device) # batch size might probably be avoided due to broadcasting, need to check
 
         # attention for tokens and concepts. BE CAREFUL: CODE IS STILL NOT OPTIMIZED, LOGICAL_NOT TAKES 6% OF GPU TIME. EVERYTHING ELSE IS IN ORDER
         xtt = F.scaled_dot_product_attention(Qct, Kct, Vtt, is_causal=True)  # flash attention
@@ -313,7 +313,7 @@ def create_causal_attention_mask(B, n_tokens_per_concept, n_rows, n_cols, device
     i_indices = torch.arange(n_rows, dtype=torch.int32, device=device).unsqueeze(1)  # Shape: (I, 1)
     j_indices = torch.arange(n_cols, dtype=torch.int32, device=device).unsqueeze(0)  # Shape: (1, J)
 
-    T = (i_indices < n_tokens_per_concept * (j_indices + 1)).bool()
+    T = (i_indices >= n_tokens_per_concept * (j_indices)).bool()
 
     return T#.unsqueeze(0).expand(B, -1, -1)
 
@@ -327,6 +327,7 @@ if __name__ == '__main__':
         device = 'mps' if torch.backends.mps.is_built() else 'cuda' if torch.cuda.is_available() else 'cpu'
         mask = create_causal_attention_mask(B, n_tokens_per_concept, num_rows, num_columns, device)
         print(mask)
+        mask2 = create_causal_attention_mask(B, n_tokens_per_concept, n_cols=num_rows, n_rows=num_columns , device=device)
 
         config = DecoderConfig()
 
@@ -418,4 +419,4 @@ if __name__ == '__main__':
         print(xt.shape, xc.shape)
 
 
-    test_create_causal_attention_mask()
+    test_attention()
