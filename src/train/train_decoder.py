@@ -22,6 +22,8 @@ from src.train.train_config import TrainerConfig, setup_ddp, create_log_file_and
 # DDP launch for e.g. 4 GPUs:
 # torchrun --standalone --nproc_per_node=4 train_decoder.py
 
+# to monitor use tensorboard --logdir=tensorboard
+
 # TODO add tensorboard logging
 
 
@@ -83,7 +85,7 @@ class Trainer:
 
         self.log_file, self.log_dir = create_log_file_and_dir(self)
         # Initialize TensorBoard SummaryWriter
-        self.writer = SummaryWriter(log_dir=self.log_dir)
+        self.writer = SummaryWriter(log_dir=os.path.join(self.log_dir, "tensorboard"))
 
         # TODO: chage to self.config.---
         self.max_lr = config.max_lr
