@@ -5,8 +5,33 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
+from transformers import GPT2Tokenizer
+
 from src.model.config import DecoderConfig
 from src.model.block_kernel import GeneralBlock
+
+
+def top_k_top_p_filtering(logits, top_k:int, top_p:float=0.0):
+    """
+    Filter a distribution of logits using top-k and top-p (nucleus) filtering. top k is much more efficient!
+    """
+    assert logits.shape[0]==1  # batch size 1 for now - could be updated for more but the code would be less clear
+    top_k = min(top_k, logits.size(-1))  # Safety check
+    if top_k > 0:
+        # Remove all tokens with a probability less than the last token in the top-k tokens
+        indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None]
+        logits[indices_to_remove] = -float('Inf')
+
+    if top_p > 0.0:
+        sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+        cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+        sorted_indices_to_remove = cumulative_probs > top_p
+        # Shift the indices to the right to keep also the last token above the threshold
+        sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+        sorted_indices_to_remove[..., 0] = 0
+        indices_to_remove = sorted_indices_to_remove.scatter(dim=1, index=sorted_indices, src=sorted_indices_to_remove)
+        logits[indices_to_remove] = -float('Inf')
+    return logits
 
 
 class Decoder(nn.Module):
@@ -34,6 +59,9 @@ class Decoder(nn.Module):
 
         # init params
         self.apply(self._init_weights)
+
+        # give the model the gpt2 tokenizer
+        self.tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
 
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
@@ -81,6 +109,33 @@ class Decoder(nn.Module):
         if target_tokens is not None:
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), target_tokens.view(-1))
         return logits, loss
+
+    def generate(self, xt, xc, max_len=128, temperature=1.0, top_k=0, top_p=0.9, device='cpu', print_to_video=False):
+        """
+        Generate a sequence of tokens given a sequence of concepts.
+
+        This method generates a sequence of tokens given a sequence of concepts. The method is autoregressive, meaning
+        that the model generates one token at a time. The method stops generating tokens when the model generates the
+        token
+        """
+        assert xt.size(0) == 1, "only batch size 1 is supported for generation"
+        assert xc.size(0) == 1, "only batch size 1 is supported for generation"
+        B, T = xt.size()
+        B, C, Dc = xc.size()
+
+        # use the forward method to generate in a loop untill max_len is reached of eos token is generated
+        for _ in range(max_len):
+            logits, _ = self.forward(xt, xc) # (B, T, vocab_size)
+            logits = logits[:, -1, :] / temperature
+            logits = top_k_top_p_filtering(logits, top_k=top_k, top_p=top_p)
+            probs = F.softmax(logits, dim=-1)
+            next_token = torch.multinomial(probs, num_samples=1)
+            xt = torch.cat([xt, next_token], dim=-1)
+            if print_to_video:
+                print(self.tokenizer.decode(next_token.squeeze(0,1))) # decide whether to print all sentence or not
+            if next_token.squeeze(0,1) == self.tokenizer.eos_token_id:
+                break
+        return xt
 
     # TODO: substitute with load from checkpoint
     @classmethod
@@ -180,9 +235,16 @@ if __name__ == "__main__":
         logits, loss = model(tokens, concepts, target_tokens)
         print(logits.shape, loss)
 
+    def test_generate():
+        device = 'mps' if torch.backends.mps.is_built() else 'cuda' if torch.cuda.is_available() else 'cpu'
+        model = Decoder(DecoderConfig()).to(device)
+        # create the tokens ground truth of shape (25) and batch size = 1
+        text = torch.randint(0, 50257, (25,), device=device).long()
 
-    model = Decoder(DecoderConfig())
-    optimizer = model.configure_optimizers(0.1, 0.1, 'cuda')
-    print("done initializing")
+        tokens = text[:-1].unsqueeze(0)
+        target_tokens = text[1:].unsqueeze(0)
+        concepts = torch.randn(3, 1024, device=device).unsqueeze(0)
 
-    test_forward()
+        model.generate(tokens, concepts, max_len=128, temperature=1.0, top_k=5, top_p=0.0, device='mps', print_to_video=True)
+
+    test_generate()

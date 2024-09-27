@@ -22,8 +22,6 @@ from src.train.train_config import TrainerConfig, setup_ddp, create_log_file_and
 # DDP launch for e.g. 4 GPUs:
 # torchrun --standalone --nproc_per_node=4 train_decoder.py
 
-# TODO add tensorboard logging
-
 
 # importing this class seems to take a lot of time
 class Trainer:
@@ -83,7 +81,7 @@ class Trainer:
 
         self.log_file, self.log_dir = create_log_file_and_dir(self)
         # Initialize TensorBoard SummaryWriter
-        self.writer = SummaryWriter(log_dir=self.log_dir)
+        self.writer = SummaryWriter(log_dir=self.log_dir, filename_suffix=time.strftime('_%Y%m%d_%H%M%S'))
 
         # TODO: chage to self.config.---
         self.max_lr = config.max_lr
