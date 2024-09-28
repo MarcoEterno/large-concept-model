@@ -238,13 +238,6 @@ class GeneralCausalSelfAttention(nn.Module):
         mask_tc = create_token_to_concept_mask(N_TOKENS_PER_CONCEPT, T, C, device=xt.device) # shape: (T,C)
         mask_ct = create_concept_to_token_mask(N_TOKENS_PER_CONCEPT, C, T, device=xt.device) # shape: (C,T)
 
-        # Expand masks to match batch size and number of heads
-        mask_tc = mask_tc.unsqueeze(0).unsqueeze(1)  # Shape: (1, 1, T, C)
-        mask_tc = mask_tc.expand(B, self.n_head, T, C)  # Shape: (B, nh, T, C) # might be unnecessary due to broadcasting
-
-        mask_ct = mask_ct.unsqueeze(0).unsqueeze(1)  # Shape: (1, 1, C, T)
-        mask_ct = mask_ct.expand(B, self.n_head, C, T)  # Shape: (B, nh, C, T) # might be unnecessary due to broadcasting
-
         # attention for tokens and concepts. BE CAREFUL: CODE IS STILL NOT OPTIMIZED, LOGICAL_NOT TAKES 6% OF GPU TIME. EVERYTHING ELSE IS IN ORDER
         xtt = F.scaled_dot_product_attention(Qct, Kct, Vtt, is_causal=True)  # Shape: (B, nh, T, hs_t)
         xtc = self.new_scaled_dot_product_attention(Qct, Kcc, Vtc, attn_mask=mask_tc) #F.scaled_dot_product_attention(Qct, Kcc, Vtc, is_causal=False)  # Shape: (B, nh, T, hs_t)
