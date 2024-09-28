@@ -1,7 +1,6 @@
 import math
 
 from torch import nn
-from torch.jit.frontend import node_start_tokens
 from torch.nn import functional as F
 import torch
 
@@ -125,7 +124,7 @@ class GeneralCausalSelfAttention(nn.Module):
     # TODO: FINISH IMPLEMENTATION
     def general_compressed_dot_product_attention(self, xt, xc, Qt_tKt, Qc_tKt, Vt, Qt_tKc, Qc_tKc, Vc, attn_mask=None,
                                                  dropout_p=0.0, is_causal=False, token_scale=None,
-                                                 concept_scale=None) -> torch.Tensor:
+                                                 concept_scale=None):
         '''
         Shape legend:
         - :math:`N: \text{Batch size} ... : \text{Any number of other batch dimensions (optional)}`
@@ -154,6 +153,7 @@ class GeneralCausalSelfAttention(nn.Module):
                 attn_bias.masked_fill_(attn_mask.logical_not(), float("-inf"))
             else:
                 attn_bias += attn_mask
+        pass
         # attn_weight = xt @ qk_t.transpose(-2,
         #                                 -1) * scale_factor  # penultimo della prima si scontra con l'ultimo della seconda
         # attn_weight += attn_bias  # broadcasted over the batch dimension
@@ -176,6 +176,7 @@ class GeneralCausalSelfAttention(nn.Module):
         if attn_mask is not None:
             if attn_mask.dtype == torch.bool:
                 attn_bias.masked_fill_(attn_mask.logical_not(), float("-inf"))
+                print("masking")
             else:
                 attn_bias += attn_mask
         attn_weight = query @ key.transpose(-2, -1) * scale_factor
@@ -228,15 +229,27 @@ class GeneralCausalSelfAttention(nn.Module):
         Vc = Vc.view(B, C, self.n_head, D // self.n_head).transpose(1, 2) # (B, nh, C, hs)
         """
 
-        # now we have to calculate the attention with flash attention for the tokens and the concepts
-        mask_tc = create_causal_attention_mask(B, N_TOKENS_PER_CONCEPT, T, C, device=xt.device)
+        """
+        #OLD MASKS
+        mask_tc = create_causal_attention_mask(B, N_TOKENS_PER_CONCEPT, T, C, device=xt.device) 
         mask_ct = create_causal_attention_mask(B, N_TOKENS_PER_CONCEPT, C, T, device=xt.device)
+        """
+        # Create masks using the updated functions
+        mask_tc = create_token_to_concept_mask(N_TOKENS_PER_CONCEPT, T, C, device=xt.device) # shape: (T,C)
+        mask_ct = create_concept_to_token_mask(N_TOKENS_PER_CONCEPT, C, T, device=xt.device) # shape: (C,T)
+
+        # Expand masks to match batch size and number of heads
+        mask_tc = mask_tc.unsqueeze(0).unsqueeze(1)  # Shape: (1, 1, T, C)
+        mask_tc = mask_tc.expand(B, self.n_head, T, C)  # Shape: (B, nh, T, C) # might be unnecessary due to broadcasting
+
+        mask_ct = mask_ct.unsqueeze(0).unsqueeze(1)  # Shape: (1, 1, C, T)
+        mask_ct = mask_ct.expand(B, self.n_head, C, T)  # Shape: (B, nh, C, T) # might be unnecessary due to broadcasting
 
         # attention for tokens and concepts. BE CAREFUL: CODE IS STILL NOT OPTIMIZED, LOGICAL_NOT TAKES 6% OF GPU TIME. EVERYTHING ELSE IS IN ORDER
-        xtt = F.scaled_dot_product_attention(Qct, Kct, Vtt, is_causal=True)  # flash attention
-        xtc = self.new_scaled_dot_product_attention(Qct, Kcc, Vtc, attn_mask=mask_tc) #F.scaled_dot_product_attention(Qct, Kcc, Vtc, is_causal=False)  # flash attention
-        xct = self.new_scaled_dot_product_attention(Qcc, Kct, Vct, attn_mask=mask_ct) #F.scaled_dot_product_attention(Qcc, Kct, Vct, is_causal=False)  # flash attention
-        xcc = F.scaled_dot_product_attention(Qcc, Kcc, Vcc, is_causal=True)  # flash attention
+        xtt = F.scaled_dot_product_attention(Qct, Kct, Vtt, is_causal=True)  # Shape: (B, nh, T, hs_t)
+        xtc = self.new_scaled_dot_product_attention(Qct, Kcc, Vtc, attn_mask=mask_tc) #F.scaled_dot_product_attention(Qct, Kcc, Vtc, is_causal=False)  # Shape: (B, nh, T, hs_t)
+        xct = self.new_scaled_dot_product_attention(Qcc, Kct, Vct, attn_mask=mask_ct) #F.scaled_dot_product_attention(Qcc, Kct, Vct, is_causal=False)  # Shape: (B, nh, C, hs_c)
+        xcc = F.scaled_dot_product_attention(Qcc, Kcc, Vcc, is_causal=True)  # Shape: (B, nh, C, hs_c)
 
         xt_embed = xtt + xtc
         xc_embed = xct + xcc
@@ -317,16 +330,58 @@ def create_causal_attention_mask(B, n_tokens_per_concept, n_rows, n_cols, device
 
     return T#.unsqueeze(0).expand(B, -1, -1)
 
+def create_token_to_concept_mask(n_tokens_per_concept, n_tokens, n_concepts, device):
+    """
+    Create a causal attention mask for token-to-concept attention.
+    A token at index i can attend to concepts with indices less than i // n_tokens_per_concept + 1.
+
+    Args:
+        n_tokens_per_concept: Number of tokens per concept
+        n_tokens: Total number of tokens (T)
+        n_concepts: Total number of concepts (C)
+        device: Device to use
+
+    Returns:
+        mask: torch.tensor of shape (T, C)
+    """
+    i_indices = torch.arange(n_tokens, device=device).unsqueeze(1)  # Shape: (T, 1)
+    j_indices = torch.arange(n_concepts, device=device).unsqueeze(0)  # Shape: (1, C)
+    mask = (j_indices < i_indices // n_tokens_per_concept + 1).bool()  # Shape: (T, C)
+    return mask
+
+def create_concept_to_token_mask(n_tokens_per_concept, n_concepts, n_tokens, device):
+    """
+    Create a causal attention mask for concept-to-token attention.
+    A concept at index j can only attend to tokens with indices less than (j + 1) * n_tokens_per_concept.
+
+    Args:
+        n_tokens_per_concept: Number of tokens per concept
+        n_concepts: Total number of concepts (C)
+        n_tokens: Total number of tokens (T)
+        device: Device to use
+
+    Returns:
+        mask: torch.tensor of shape (C, T)
+    """
+    i_indices = torch.arange(n_concepts, device=device).unsqueeze(1)  # Shape: (C, 1)
+    j_indices = torch.arange(n_tokens, device=device).unsqueeze(0)  # Shape: (1, T)
+    mask = (j_indices < n_tokens_per_concept * (i_indices + 1)).bool()  # Shape: (C, T)
+    return mask
+
 
 if __name__ == '__main__':
     def test_create_causal_attention_mask():
         B = 1
-        num_rows = 20
-        num_columns = 5
+        num_tokens = 10
+        num_concepts = 3
         n_tokens_per_concept = 4
         device = 'mps' if torch.backends.mps.is_built() else 'cuda' if torch.cuda.is_available() else 'cpu'
-        mask = create_causal_attention_mask(B, n_tokens_per_concept, num_rows, num_columns, device)
-        print(mask)
+        mask_tc = create_token_to_concept_mask(n_tokens_per_concept, num_tokens, num_concepts, device)
+        mask_ct = create_token_to_concept_mask(n_tokens_per_concept, n_tokens=num_tokens,n_concepts=num_concepts, device=device)
+        print("mask_tc")
+        print(mask_tc)
+        print("mask_ct")
+        print(mask_ct)
 
         config = DecoderConfig()
 
@@ -348,10 +403,10 @@ if __name__ == '__main__':
         print(xt.shape, xc.shape)
 
     def test_new_block_equals_gpt_block():
-        from src.model.config import GPTConfig
+        from src.model.config import DecoderConfig
         from src.model.gpt_block import Block as GPTBlock
         import torch
-        config = GPTConfig()
+        config = DecoderConfig()
 
         device = "mps" if torch.backends.mps.is_built() else "cuda" if torch.cuda.is_available() else "cpu"
         print(f"Using device: {device}")
@@ -375,7 +430,7 @@ if __name__ == '__main__':
 
 
     def explore_block_speed():
-        from src.model.config import GPTConfig, DecoderConfig
+        from src.model.config import DecoderConfig
         import torch
         config = DecoderConfig
 
