@@ -1,21 +1,19 @@
 import inspect
-from logging import raiseExceptions
 
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-
 from transformers import GPT2Tokenizer
 
-from src.model.config import DecoderConfig
 from src.model.block_kernel import GeneralBlock
+from src.model.config import DecoderConfig
 
 
-def top_k_top_p_filtering(logits, top_k:int, top_p:float=0.0):
+def top_k_top_p_filtering(logits, top_k: int, top_p: float = 0.0):
     """
     Filter a distribution of logits using top-k and top-p (nucleus) filtering. top k is much more efficient!
     """
-    assert logits.shape[0]==1  # batch size 1 for now - could be updated for more but the code would be less clear
+    assert logits.shape[0] == 1  # batch size 1 for now - could be updated for more but the code would be less clear
     top_k = min(top_k, logits.size(-1))  # Safety check
     if top_k > 0:
         # Remove all tokens with a probability less than the last token in the top-k tokens
@@ -125,15 +123,15 @@ class Decoder(nn.Module):
 
         # use the forward method to generate in a loop untill max_len is reached of eos token is generated
         for _ in range(max_len):
-            logits, _ = self.forward(xt, xc) # (B, T, vocab_size)
+            logits, _ = self.forward(xt, xc)  # (B, T, vocab_size)
             logits = logits[:, -1, :] / temperature
             logits = top_k_top_p_filtering(logits, top_k=top_k, top_p=top_p)
             probs = F.softmax(logits, dim=-1)
             next_token = torch.multinomial(probs, num_samples=1)
             xt = torch.cat([xt, next_token], dim=-1)
             if print_to_video:
-                print(self.tokenizer.decode(next_token.squeeze(0,1))) # decide whether to print all sentence or not
-            if next_token.squeeze(0,1) == self.tokenizer.eos_token_id:
+                print(self.tokenizer.decode(next_token.squeeze(0, 1)))  # decide whether to print all sentence or not
+            if next_token.squeeze(0, 1) == self.tokenizer.eos_token_id:
                 break
         return xt
 
@@ -221,8 +219,30 @@ class Decoder(nn.Module):
         optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=(0.9, 0.95), eps=1e-8, fused=use_fused)
         return optimizer
 
+    def load_checkpoint(self, checkpoint_path, device):
+        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+        self.load_state_dict(checkpoint['model'])
+        self.eval()
+        return self
+
 
 if __name__ == "__main__":
+    def sample_model_inference():
+        # load the model from checkpoint
+        model = Decoder(DecoderConfig())
+        checkpoint_path = "/Users/marcoeterno/Desktop/Coding/large-concept-model/data/checkpoints/decoder_ntc-8_nlayer-12_nhead-16_n_embd-768-concept_dim1024step-12600.pt"
+        print(checkpoint_path)
+        model.load_checkpoint(checkpoint_path, device='mps')
+        model.eval()
+        print(model)
+
+        # generate a sequence of tokens
+        text = "I am a language model"
+        xt = model.tokenizer.encode(text, return_tensors='pt', device='mps')
+        model.generate(xt, xc=torch.empty(1, 0, 1024), max_len=128, temperature=1.0, top_k=5, top_p=0.0, device='mps',
+                       print_to_video=True)
+
+
     def test_forward():
         model = Decoder(DecoderConfig())
         # create the tokens ground truth of shape (25)
@@ -235,6 +255,7 @@ if __name__ == "__main__":
         logits, loss = model(tokens, concepts, target_tokens)
         print(logits.shape, loss)
 
+
     def test_generate():
         device = 'mps' if torch.backends.mps.is_built() else 'cuda' if torch.cuda.is_available() else 'cpu'
         model = Decoder(DecoderConfig()).to(device)
@@ -245,6 +266,8 @@ if __name__ == "__main__":
         target_tokens = text[1:].unsqueeze(0)
         concepts = torch.randn(3, 1024, device=device).unsqueeze(0)
 
-        model.generate(tokens, concepts, max_len=128, temperature=1.0, top_k=5, top_p=0.0, device='mps', print_to_video=True)
+        model.generate(tokens, concepts, max_len=128, temperature=1.0, top_k=5, top_p=0.0, device='mps',
+                       print_to_video=True)
 
-    test_generate()
+
+    sample_model_inference()
