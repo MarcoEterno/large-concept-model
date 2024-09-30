@@ -18,7 +18,7 @@ class TrainerConfig:
 
     # TODO: change for cloud run!
     eval_freq: int = 10
-    eval_n_examples:int = 20
+    eval_n_examples:int = 8
     eval_hellaswag_freq: int = 1
     eval_hellaswag_compression: int = 1 # TODO set to 1 for final run
     eval_model_inference_freq: int = 200000
