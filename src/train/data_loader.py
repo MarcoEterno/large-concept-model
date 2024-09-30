@@ -10,7 +10,6 @@ from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT
 from src.model.encoder import Encoder
 
 
-
 def load_tokens(filename, device=None):
     if device is None:
         print("WARNING: device not specified during data loading. loading on cpu")
@@ -120,8 +119,8 @@ class DataLoaderWithConcepts:
             self.gpt2_tokenizer.decode([token for token in token_ids if token != self.gpt2_tokenizer.pad_token_id], skip_special_tokens=True)
             for token_ids in x
         ]
-        x_bert = self.encoder.tokenizer.encode(x_text, add_special_tokens=True, return_tensors='pt')
-        concepts = self.encoder.encode_text(x_text).view(B, T // N_TOKENS_PER_CONCEPT, -1)
+        concepts = torch.tensor([self.encoder.encode_text(x_text[i]) for i in range(len(x_text))], device = self.device).view(B,-1)
+        # TODO: attention: to avoid mismatch between tokens and concepts, concepts should be encoded from groups of eight gpt2 tokens, that are transformed to text and retokenized.
 
         # advance the position in the tensor
         self.current_position += B * T * self.num_processes
@@ -134,3 +133,6 @@ class DataLoaderWithConcepts:
 
         return x, y, concepts
 
+if __name__ == '__main__':
+    def test_data_loader_with_concepts():
+        pass
