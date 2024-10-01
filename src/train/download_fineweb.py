@@ -4,7 +4,7 @@ https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu
 Downloads and tokenizes the data and saves data shards to disk.
 Run simply as:
 $ python fineweb.py
-Will save shards to the local directory "edu_fineweb10B".
+Will save shards to the local directory "edu_fineweb10B-gpt2".
 """
 
 import multiprocessing as mp
@@ -19,7 +19,7 @@ from transformers import BertTokenizerFast, GPT2Tokenizer, BertTokenizer
 from src.model.config import DATA_ROOT_PATH
 
 # ------------------------------------------
-local_dir = "edu_fineweb10B-gpt2"
+local_dir = "edu_fineweb10B-gpt2-gpt2"
 remote_name = "sample-10BT"
 shard_size = int(1e8)  # 100M tokens per shard, total of 100 shards
 

@@ -4,7 +4,7 @@ https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu
 Downloads and tokenizes the data and saves data shards to disk.
 Run simply as:
 $ python fineweb.py
-Will save shards to the local directory "edu_fineweb10B".
+Will save shards to the local directory "edu_fineweb10B-gpt2".
 """
 
 import os
@@ -15,7 +15,7 @@ from datasets import load_dataset # pip install datasets
 from tqdm import tqdm # pip install tqdm
 
 # ------------------------------------------
-local_dir = "edu_fineweb10B"
+local_dir = "edu_fineweb10B-gpt2"
 remote_name = "sample-10BT"
 shard_size = int(1e8) # 100M tokens per shard, total of 100 shards
 
