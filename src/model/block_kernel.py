@@ -243,7 +243,7 @@ class GeneralCausalSelfAttention(nn.Module):
         # xct = self.new_scaled_dot_product_attention(Qcc, Kct, Vct, attn_mask=mask_ct) #F.scaled_dot_product_attention(Qcc, Kct, Vct, is_causal=False)  # Shape: (B, nh, C, hs_c)
         # xcc = F.scaled_dot_product_attention(Qcc, Kcc, Vcc, is_causal=True)  # Shape: (B, nh, C, hs_c)
 
-        xt_embed = xtt # + xtc
+        xt_embed = xtt + xtc
         # xc_embed = xct + xcc
 
         # output heads reassemble

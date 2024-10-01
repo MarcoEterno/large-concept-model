@@ -3,7 +3,7 @@ import inspect
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from transformers import GPT2Tokenizer
+from transformers import GPT2Tokenizer, BertTokenizer
 
 from src.model.block_kernel import GeneralBlock
 from src.model.config import DecoderConfig
@@ -230,18 +230,20 @@ if __name__ == "__main__":
     def sample_model_inference():
         # load the model from checkpoint
         model = Decoder(DecoderConfig())
-        checkpoint_path = "/Users/marcoeterno/Desktop/Coding/large-concept-model/data/checkpoints/decoder_ntc-8_nlayer-12_nhead-16_n_embd-768-concept_dim1024step-12600.pt"
+        checkpoint_path = "/Users/marcoeterno/Desktop/Coding/large-concept-model/data/checkpoints/decoder_ntc-8_nlayer-12_nhead-16_n_embd-768-concept_dim1024step-03000.pt"
         print(checkpoint_path)
         model.load_checkpoint(checkpoint_path, device='mps')
         model.eval()
         print(model)
 
+        tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+
         # generate a sequence of tokens
         text = "I am a language model"
-        xt = model.tokenizer.encode(text, return_tensors='pt', device='mps')
-        model.generate(xt, xc=torch.empty(1, 0, 1024), max_len=128, temperature=1.0, top_k=5, top_p=0.0, device='mps',
+        xt = tokenizer.encode(text, return_tensors='pt', device='mps')
+        xt = model.generate(xt, xc=torch.empty(1, 0, 1024), max_len=128, temperature=1.0, top_k=5, top_p=0.0, device='mps',
                        print_to_video=True)
-
+        print(tokenizer.decode(xt.squeeze(0, 1)))
 
     def test_forward():
         model = Decoder(DecoderConfig())
