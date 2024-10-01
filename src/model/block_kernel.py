@@ -239,7 +239,7 @@ class GeneralCausalSelfAttention(nn.Module):
 
         # attention for tokens and concepts. BE CAREFUL: CODE IS STILL NOT OPTIMIZED, LOGICAL_NOT TAKES 6% OF GPU TIME. EVERYTHING ELSE IS IN ORDER
         xtt = F.scaled_dot_product_attention(Qct, Kct, Vtt, is_causal=True)  # Shape: (B, nh, T, hs_t)
-        xtc = self.new_scaled_dot_product_attention(Qct, Kcc, Vtc, attn_mask=mask_tc) #F.scaled_dot_product_attention(Qct, Kcc, Vtc, is_causal=False)  # Shape: (B, nh, T, hs_t)
+        xtc = F.scaled_dot_product_attention(Qct, Kcc, Vtc, attn_mask=mask_tc) #F.scaled_dot_product_attention(Qct, Kcc, Vtc, is_causal=False)  # Shape: (B, nh, T, hs_t)
         # xct = self.new_scaled_dot_product_attention(Qcc, Kct, Vct, attn_mask=mask_ct) #F.scaled_dot_product_attention(Qcc, Kct, Vct, is_causal=False)  # Shape: (B, nh, C, hs_c)
         # xcc = F.scaled_dot_product_attention(Qcc, Kcc, Vcc, is_causal=True)  # Shape: (B, nh, C, hs_c)
 
