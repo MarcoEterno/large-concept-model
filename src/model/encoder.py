@@ -11,7 +11,7 @@ class Encoder(nn.Module):
             'bert-large-uncased', clean_up_tokenization_spaces=True)
         self.model = model if model else BertModel.from_pretrained('bert-large-uncased')
 
-    def forward(self, *args):
+    def forward(self, *args, **kwargs):
         # had to take out the kwargs from the forward method because python thought it was an init method instead
         """
         Accepts input in the form of a string, a list of strings, or a tensor of tokens (batched or not).
@@ -22,12 +22,12 @@ class Encoder(nn.Module):
         - If a tensor of tokens is passed, it will be encoded into concepts.
         """
         if len(args) == 1 and isinstance(args[0], str):
-            return self.encode_text(*args)
+            return self.encode_text(*args, **kwargs)
         if len(args) == 1 and isinstance(args[0], torch.Tensor):
-            return self.encode_tokens(*args)
+            return self.encode_tokens(*args, **kwargs)
         if len(args) == 1 and isinstance(args[0], list):
             a0, *args = args
-            return torch.concat([self.forward(x, *args) for x in a0], dim=0)
+            return torch.concat([self.forward(x, *args, **kwargs) for x in a0], dim=0)
 
     def encode_text(self, text: str, encode_in_single_concept = False) -> torch.Tensor:
         # tokenize with BERT
@@ -83,9 +83,12 @@ class Encoder(nn.Module):
 
 if __name__ == '__main__':
     encoder = Encoder(n_tokens_per_concept=4)
-    text = "The quick brown fox jumps over the lazy dog."
+    text = ", 50 million tons of soil were blown"
     concepts = encoder(text)
     print(concepts)
+    """tensor([[[-0.8756, -0.2732, -0.0387, ..., -0.5001, -1.2640, 0.7711],
+             [-1.2281, -0.8402, -0.2846, ..., -0.6541, 0.0603, 0.6012],
+             [-0.1364, -0.1694, 0.3193, ..., -0.4664, -0.5452, -0.1143]]])"""
 
     tokens = torch.tensor([[101, 1996, 4248, 2829, 4419, 14523, 2058, 1996, 13971, 3899, 1012, 102]])
     concepts = encoder(tokens)

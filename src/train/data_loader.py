@@ -1,4 +1,5 @@
 import os
+import time
 
 import numpy as np
 import torch
@@ -8,6 +9,7 @@ from transformers import GPT2Tokenizer
 from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT
 
 from src.model.encoder import Encoder
+from src.utils.utils import timer
 
 
 def load_tokens(filename, device=None):
@@ -106,112 +108,8 @@ class DataLoaderWithConcepts:
         self.tokens = load_tokens(self.shards[self.current_shard], device=self.device)
         self.current_position = self.B * self.T * self.process_rank
 
-    def old_next_batch(self):
-        B, T = self.B, self.T
-        buf = self.tokens[self.current_position: self.current_position + B * T + 1]
-        x = (buf[:-1]).view(B, T)  # inputs
-        y = (buf[1:]).view(B, T)  # targets
-
-        # calculating the input concepts. ATTENTION: tokens must be detokenized and reencoded with bert tokenizer!!
-        # batch decoding
-        # x_text = self.gpt2_tokenizer.batch_decode(x, skip_special_tokens=True)
-        x_text = [
-            self.gpt2_tokenizer.decode(
-                [token for token in token_ids if token != self.gpt2_tokenizer.pad_token_id],
-                skip_special_tokens=True
-            )
-            for token_ids in x
-        ]
-
-        # Encode texts and ensure fixed-length encodings
-        encoded_concepts = []
-        max_length = max(self.encoder.encode_text(x_text[i]).size(1) for i in range(len(x_text))) # a little suboptimal to loop through the texts twice, but doable
-
-        pad_token = torch.tensor([0]*self.encoder.encode_text(x_text[0]).size(-1), device=self.device, dtype = torch.long)
-        for i in range(len(x_text)):
-            encoded = self.encoder.encode_text(x_text[i])
-            # Pad or truncate to the fixed length
-            if len(encoded) < max_length:
-                # Pad with zeros if the encoding is shorter than max_length
-                encoded = torch.cat([encoded, pad_token.repeat(max_length - len(encoded))])
-
-            encoded_concepts.append(encoded)
-
-        # Convert to tensor
-        concepts = torch.tensor(encoded_concepts, device=self.device, dtype=torch.long).view(B, -1)
-        # TODO: attention: to avoid mismatch between tokens and concepts, concepts should be encoded from groups of eight gpt2 tokens, that are transformed to text and retokenized.
-
-        # advance the position in the tensor
-        self.current_position += B * T * self.num_processes
-
-        # if loading the next batch would be out of bounds, advance to next shard
-        if self.current_position + (B * T * self.num_processes + 1) > len(self.tokens):
-            self.current_shard = (self.current_shard + 1) % len(self.shards)
-            self.tokens = load_tokens(self.shards[self.current_shard])
-            self.current_position = B * T * self.process_rank
-
-        return x, y, concepts
-
-    def less_old_next_batch(self):
-        B, T = self.B, self.T
-        buf = self.tokens[self.current_position: self.current_position + B * T + 1]
-        x = (buf[:-1]).view(B, T)  # inputs
-        y = (buf[1:]).view(B, T)  # targets
-
-        # Chunk the targets into future concepts
-        num_chunks = T // N_TOKENS_PER_CONCEPT
-        y_chunks = y[:, :num_chunks * N_TOKENS_PER_CONCEPT].view(B, num_chunks, N_TOKENS_PER_CONCEPT)
-
-        # Flatten y_chunks for decoding
-        y_chunks_flat = y_chunks.view(-1, N_TOKENS_PER_CONCEPT)  # Shape: (B * num_chunks, N)
-
-        y_text = [self.gpt2_tokenizer.batch_decode(y_chunks[:,i,:], skip_special_tokens=True) for i in range(y_chunks.size(1))] # list of lists, each sublist has B elements
-
-        # Re-encode the text chunks with the BERT tokenizer
-        y_encoded = [[self.encoder.tokenizer.encode(y_text[i][j], padding=False, truncation=True, return_tensors='pt', device=self.device)for j in range(len(y_text[0]))] for i in range(len(y_text))]
-
-        # Move tensors to the correct device
-        #y_encoded = [torch.cat(y_encoded[i], dim=0).to(self.device) for i in range(len(y_encoded))]
-
-        # Now we encode text to concepts with the self.encoder
-        # Pass the encoded inputs through the encoder to get concepts
-        concepts = torch.cat([self.encoder(y_encoded[i]) for i in range(len(y_encoded))], dim=0).view(B, num_chunks, -1)
-
-        # Update current position for the next batch
-        self.current_position += B * T
-
-        return x, y, concepts  # Return inputs, targets, and concepts
-        encoded_concepts = []
-        max_length = max(self.encoder.encode_text(x_text[i]).size(1) for i in
-                         range(len(x_text)))  # a little suboptimal to loop through the texts twice, but doable
-
-        pad_token = torch.tensor([0] * self.encoder.encode_text(x_text[0]).size(-1), device=self.device,
-                                 dtype=torch.long)
-        for i in range(len(x_text)):
-            encoded = self.encoder.encode_text(x_text[i])
-            # Pad or truncate to the fixed length
-            if len(encoded) < max_length:
-                # Pad with zeros if the encoding is shorter than max_length
-                encoded = torch.cat([encoded, pad_token.repeat(max_length - len(encoded))])
-
-            encoded_concepts.append(encoded)
-
-        # Convert to tensor
-        concepts = torch.tensor(encoded_concepts, device=self.device, dtype=torch.long).view(B, -1)
-        # TODO: attention: to avoid mismatch between tokens and concepts, concepts should be encoded from groups of eight gpt2 tokens, that are transformed to text and retokenized.
-
-        # advance the position in the tensor
-        self.current_position += B * T * self.num_processes
-
-        # if loading the next batch would be out of bounds, advance to next shard
-        if self.current_position + (B * T * self.num_processes + 1) > len(self.tokens):
-            self.current_shard = (self.current_shard + 1) % len(self.shards)
-            self.tokens = load_tokens(self.shards[self.current_shard])
-            self.current_position = B * T * self.process_rank
-
-        return x, y, concepts
-
-    def next_batch(self):
+    @timer
+    def slow_next_batch(self):
         B, T = self.B, self.T
         N = N_TOKENS_PER_CONCEPT  # Number of tokens per concept
 
@@ -249,9 +147,59 @@ class DataLoaderWithConcepts:
 
             # Append the concept to the list
             concepts_list.append(concept)
-
         # Stack concepts into a tensor
         concepts = torch.cat(concepts_list, dim=0)  # Shape: (B * num_chunks, hidden_size)
+
+        # Reshape concepts to (B, num_chunks, hidden_size)
+        hidden_size = concepts.size(-1)
+        concepts = concepts.view(B, num_chunks, hidden_size)
+
+        # Update current position for the next batch
+        self.current_position += B * T * self.num_processes
+
+        # If loading the next batch would be out of bounds, advance to next shard
+        if self.current_position + (B * T * self.num_processes + 1) > len(self.tokens):
+            self.current_shard = (self.current_shard + 1) % len(self.shards)
+            self.tokens = load_tokens(self.shards[self.current_shard], device=self.device)
+            self.current_position = B * T * self.process_rank
+
+        return x, y, concepts  # Return inputs, targets, and concepts
+
+    @timer
+    def next_batch(self):
+        # TODO: remember to change y with x for concept embedding
+        B, T = self.B, self.T
+        N = N_TOKENS_PER_CONCEPT  # Assuming N_TOKENS_PER_CONCEPT is defined
+
+        # Get the buffer of tokens
+        buf = self.tokens[self.current_position: self.current_position + B * T + 1]
+        x = buf[:-1].view(B, T)  # Inputs
+        y = buf[1:].view(B, T)  # Targets
+
+        # Chunk the targets into future concepts
+        num_chunks = T // N
+        y_chunks = y[:, :num_chunks * N].view(B * num_chunks, N)  # Shape: (B * num_chunks, N)
+
+        # Convert y_chunks to a list of lists
+        y_chunks_list = y_chunks.tolist()
+
+        # Decode each chunk into text using GPT-2 tokenizer
+        y_text = self.gpt2_tokenizer.batch_decode(y_chunks_list, skip_special_tokens=True)  # List of strings
+
+        # Re-tokenize the text using the BERT tokenizer (supports padding)
+        y_encoded = self.encoder.tokenizer(
+            y_text,
+            return_tensors='pt',
+            padding=True,
+            truncation=True,
+            skip_special_tokens=True,
+        )
+
+        # Move tensors to the correct device
+        y_encoded = y_encoded["input_ids"].to(self.device)
+
+        # Encode the tokens into concepts using the Encoder
+        concepts = self.encoder(y_encoded, encode_in_single_concept=True)  # Shape: (B * num_chunks, hidden_size)
 
         # Reshape concepts to (B, num_chunks, hidden_size)
         hidden_size = concepts.size(-1)
@@ -282,6 +230,16 @@ if __name__ == '__main__':
         dl = DataLoaderWithConcepts(B, T, process_rank, num_processes, split, master_process, device=device)
         for i in range(3):
             x, y, concepts = dl.next_batch()
+            dl.reset()
+            x_slow, y_slow, concepts_slow = dl.slow_next_batch()
             print(x, y, concepts)
+            print(x_slow, y_slow, concepts_slow)
+            assert torch.allclose(x, x_slow)
+            assert torch.allclose(y, y_slow)
+            assert torch.allclose(concepts, concepts_slow)
+
+
 
     test_data_loader()
+
+# TODO: discover why the slow method and the fast method for next batch have different concepts and both are very different from the  encoded text of the naked encoder
