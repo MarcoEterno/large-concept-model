@@ -120,16 +120,16 @@ class DataLoaderWithConcepts:
 
         # Chunk the targets into future concepts
         num_chunks = T // N
-        y_chunks = y[:, :num_chunks * N].view(B, num_chunks, N)  # Shape: (B, num_chunks, N)
+        x_chunks = y[:, :num_chunks * N].view(B, num_chunks, N)  # Shape: (B, num_chunks, N)
 
         # Flatten y_chunks for processing
-        y_chunks_flat = y_chunks.view(-1, N)  # Shape: (B * num_chunks, N)
-        y_chunks_list = y_chunks_flat.tolist()  # Convert to list of lists
+        x_chunks_flat = x_chunks.view(-1, N)  # Shape: (B * num_chunks, N)
+        x_chunks_list = x_chunks_flat.tolist()  # Convert to list of lists
 
         concepts_list = []
 
         # Process each chunk individually
-        for chunk_tokens in y_chunks_list:
+        for chunk_tokens in x_chunks_list:
             # Decode the chunk into text using GPT-2 tokenizer
             text = self.gpt2_tokenizer.decode(chunk_tokens, skip_special_tokens=True)
 
@@ -165,7 +165,7 @@ class DataLoaderWithConcepts:
 
         return x, y, concepts  # Return inputs, targets, and concepts
 
-    @timer
+
     def next_batch(self):
         # TODO: remember to change y with x for concept embedding
         B, T = self.B, self.T
@@ -178,28 +178,27 @@ class DataLoaderWithConcepts:
 
         # Chunk the targets into future concepts
         num_chunks = T // N
-        y_chunks = y[:, :num_chunks * N].view(B * num_chunks, N)  # Shape: (B * num_chunks, N)
+        x_chunks = x[:, :num_chunks * N].view(B * num_chunks, N)  # Shape: (B * num_chunks, N)
 
         # Convert y_chunks to a list of lists
-        y_chunks_list = y_chunks.tolist()
+        x_chunks_list = x_chunks.tolist()
 
         # Decode each chunk into text using GPT-2 tokenizer
-        y_text = self.gpt2_tokenizer.batch_decode(y_chunks_list, skip_special_tokens=True)  # List of strings
+        x_text = self.gpt2_tokenizer.batch_decode(x_chunks_list, skip_special_tokens=True)  # List of strings
 
         # Re-tokenize the text using the BERT tokenizer (supports padding)
-        y_encoded = self.encoder.tokenizer(
-            y_text,
+        x_encoded = self.encoder.tokenizer(
+            x_text,
             return_tensors='pt',
             padding=True,
             truncation=True,
-            skip_special_tokens=True,
         )
 
         # Move tensors to the correct device
-        y_encoded = y_encoded["input_ids"].to(self.device)
+        x_encoded = x_encoded["input_ids"].to(self.device)
 
         # Encode the tokens into concepts using the Encoder
-        concepts = self.encoder(y_encoded, encode_in_single_concept=True)  # Shape: (B * num_chunks, hidden_size)
+        concepts = self.encoder(x_encoded, encode_in_single_concept=True)  # Shape: (B * num_chunks, hidden_size)
 
         # Reshape concepts to (B, num_chunks, hidden_size)
         hidden_size = concepts.size(-1)
