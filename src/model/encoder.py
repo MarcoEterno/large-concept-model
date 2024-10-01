@@ -29,7 +29,7 @@ class Encoder(nn.Module):
             a0, *args = args
             return torch.concat([self.forward(x, *args) for x in a0], dim=0)
 
-    def encode_text(self, text: str) -> torch.Tensor:
+    def encode_text(self, text: str, encode_in_single_concept = False) -> torch.Tensor:
         # tokenize with BERT
         inputs = self.tokenizer(
             text,
@@ -40,46 +40,46 @@ class Encoder(nn.Module):
 
         inputs = inputs.to(self.model.device)
 
-        return self._encode(inputs)
+        return self._encode(inputs, encode_in_single_concept = encode_in_single_concept)
 
-    def encode_tokens(self, tokens: torch.Tensor) -> torch.Tensor:
+    def encode_tokens(self, tokens: torch.Tensor, attention_mask=None, encode_in_single_concept=False) -> torch.Tensor:
         tokens = tokens.to(self.model.device)
 
         # Ensure tokens have at least 2 dimensions
         if tokens.dim() == 1:
             tokens = tokens.unsqueeze(0)
 
-        # pad input to multiple of n_tokens_per_concept
-        n_pad = (- tokens.shape[-1]) % self.n_tokens_per_concept
-        padding_tensor = torch.ones(*tokens.shape[:-1], n_pad, dtype=tokens.dtype, device=tokens.device)
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(self.model.device)
+        else:
+            attention_mask = torch.ones_like(tokens, device=self.model.device)
 
         inputs = {
-            'input_ids': torch.cat([tokens, self.tokenizer.pad_token_id * padding_tensor], dim=-1).long(),
-            'token_type_ids': torch.cat([torch.zeros_like(tokens), 0 * padding_tensor], dim=-1).long(),
-            'attention_mask': torch.cat([torch.ones_like(tokens), 0 * padding_tensor], dim=-1).long(),
+            'input_ids': tokens,
+            'attention_mask': attention_mask,
         }
 
-        return self._encode(inputs)
+        return self._encode(inputs, encode_in_single_concept=encode_in_single_concept)
 
-    def _encode(self, inputs: dict[str, torch.Tensor]) -> torch.Tensor:
+    def _encode(self, inputs: dict[str, torch.Tensor], encode_in_single_concept = False) -> torch.Tensor:
         original_shape = inputs['input_ids'].shape
 
-        # split tokens into concepts
-        inputs = {k: t.reshape(-1, self.n_tokens_per_concept) for k, t in inputs.items()}
+        if not encode_in_single_concept:
+            # split tokens into concepts
+            inputs = {k: t.reshape(-1, self.n_tokens_per_concept) for k, t in inputs.items()}
 
         # encode token groups into concepts
-        return self._encode_tokens_into_concepts(inputs, original_shape=original_shape)
+        return self._encode_tokens_into_concepts(inputs, original_shape=original_shape, encode_in_single_concept = encode_in_single_concept)
 
     def _encode_tokens_into_concepts(self, inputs: dict[str, torch.Tensor], original_shape,
-                                     no_grad=True) -> torch.Tensor:
+                                     no_grad=True, encode_in_single_concept = False) -> torch.Tensor:
         if no_grad:
             with torch.no_grad():
                 output = self.model(**inputs).last_hidden_state.mean(dim=-2)
         else:
             output = self.model(**inputs).last_hidden_state.mean(dim=-2)
 
-        return output.reshape(*original_shape[:-1], -1, output.shape[-1])
-
+        return output.reshape(*original_shape[:-1], -1, output.shape[-1]) if not encode_in_single_concept else output
 
 if __name__ == '__main__':
     encoder = Encoder(n_tokens_per_concept=4)
