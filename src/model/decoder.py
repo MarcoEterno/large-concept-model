@@ -94,7 +94,7 @@ class Decoder(nn.Module):
         # forward the token and position embeddings
         pos = torch.arange(0, C, dtype=torch.long, device=tokens.device)  # shape (C)
         concept_pos_emb = self.transformer.cpe(pos)  # position embeddings of shape (C, n_embd)
-        xc = concepts + concept_pos_emb[:,0:len(concepts),:]
+        xc = concepts + concept_pos_emb
 
         # forward the blocks of the transformer
         for block in self.transformer.h:
