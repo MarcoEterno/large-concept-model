@@ -2,15 +2,16 @@ import math
 import os
 import time
 from dataclasses import dataclass
+import datetime
 
 import numpy as np
 import torch
 from torch.nn import functional as F
-
+from torch.utils.tensorboard import SummaryWriter
 
 from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT, CoreLCMConfig, device_type
 from src.model.lower_lcm import Lower_LCM
-from src.train.train_config import TrainerConfig, setup_ddp, create_log_file_and_dir
+from src.train.train_config import TrainerConfig, setup_ddp
 from src.train.data_loader import DataLoaderLite
 from src.benchmark.hellaswag_lcm import evaluate_lower_lcm
 # -----------------------------------------------------------------------------
@@ -48,7 +49,8 @@ class Trainer:
             process_rank=self.ddp_rank,
             num_processes=self.ddp_world_size,
             split="train",
-            master_process=self.master_process
+            master_process=self.master_process,
+            device=self.device
         )
 
         self.val_loader = DataLoaderLite(
@@ -57,7 +59,8 @@ class Trainer:
             process_rank=self.ddp_rank,
             num_processes=self.ddp_world_size,
             split="val",
-            master_process=self.master_process
+            master_process=self.master_process,
+            device = self.device
         )
 
         # create model
@@ -77,9 +80,23 @@ class Trainer:
             device_type=self.device_type
         )
 
-        self.log_file, self.log_dir = create_log_file_and_dir(self)
+        # Create log directory with datetime format
+        if self.master_process:
+            self.start_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            self.log_dir = os.path.join('logs', self.start_time)
+            os.makedirs(self.log_dir, exist_ok=True)
+            self.log_file = os.path.join(self.log_dir, 'training_log.txt')
+        else:
+            self.log_dir = None
+            self.log_file = None
 
-        # TODO: chage to self.config.---
+        # Initialize TensorBoard SummaryWriter
+        if self.master_process:
+            self.writer = SummaryWriter(log_dir=self.log_dir)
+        else:
+            self.writer = None
+
+        # TODO: change to self.config.---
         self.max_lr = config.max_lr
         self.min_lr = config.min_lr
         self.warmup_steps = config.warmup_steps
@@ -127,7 +144,7 @@ class Trainer:
             #     eval_model_inference(self,step)
             #
             # do one step of the optimization
-            loss_accum, lr, norm = self.optimize_one_step(step)  # return just to print
+            loss_accum, lr, norm, tokens_per_sec = self.optimize_one_step(step)  # return just to print
 
             # print stats
             t1 = time.time()
@@ -137,8 +154,17 @@ class Trainer:
             if self.master_process or not self.ddp:
                 print(
                     f"step {step:5d} | loss: {loss_accum.item():.6f} | lr {lr:.4e} | norm: {norm:.4f} | dt: {dt * 1000:.2f}ms | tok/sec: {tokens_per_sec:.2f}")
-                with open(self.log_file, "a") as f:
-                    f.write(f"{step} train {loss_accum.item():.6f}\n")
+                if self.master_process:
+                    with open(self.log_file, "a") as f:
+                        f.write(f"{step} train {loss_accum.item():.6f}\n")
+                    # Log to TensorBoard
+                    self.writer.add_scalar('Train/Loss', loss_accum.item(), step)
+                    self.writer.add_scalar('Train/Learning_Rate', lr, step)
+                    self.writer.add_scalar('Train/Gradient_Norm', norm, step)
+                    self.writer.add_scalar('Train/Tokens_per_sec', tokens_per_sec, step)
+
+        if self.master_process:
+            self.writer.close()
 
         if self.ddp:
             destroy_process_group()
@@ -161,7 +187,7 @@ class Trainer:
         torch.save(checkpoint, checkpoint_path)
 
     def eval(self, step, last_step):
-        model.eval()
+        self.model.eval()
         self.val_loader.reset()
         with torch.no_grad():
             val_loss_accum = 0.0
@@ -171,9 +197,9 @@ class Trainer:
                 x, y = x.to(self.device), y.to(self.device)
                 if self.device_type == "cuda" or self.device_type == "cpu":
                     with torch.autocast(device_type=self.device_type, dtype=torch.bfloat16): # bfloat16 is faster for evaluation
-                        logits, loss = model(x,target=y)
+                        logits, loss = self.model(x,target=y)
                 elif self.device_type == "mps":
-                        logits, loss = model(x,target=y) # MPS does not support bfloat16
+                        logits, loss = self.model(x,target=y) # MPS does not support bfloat16
 
                 else:
                     raise ValueError(f"device_type {self.device_type} not supported")
@@ -187,28 +213,31 @@ class Trainer:
             print(f"validation loss: {val_loss_accum.item():.4f}")
             with open(self.log_file, "a") as f:
                 f.write(f"{step} val {val_loss_accum.item():.4f}\n")
+            # Log to TensorBoard
+            self.writer.add_scalar('Validation/Loss', val_loss_accum.item(), step)
             if step > 0 and (step % self.checkpoint_freq == 0 or last_step):
                 self.save_checkpoint(step, val_loss_accum)
 
 
     def optimize_one_step(self, step):
-        model.train()
+        self.model.train()
         self.optimizer.zero_grad()
         loss_accum = 0.0
         for micro_step in range(self.grad_accum_steps):
             print('.', end='', flush=True)
             x, y = self.train_loader.next_batch()
-            x, y = x.to(self.device), y.to(self.device)
+            x = x.to(self.device, non_blocking=True)
+            y = y.to(self.device, non_blocking=True)
 
             # this field is also used by the forward pass.
             if self.ddp:
-                model.require_backward_grad_sync = (micro_step == self.grad_accum_steps - 1)
+                self.model.require_backward_grad_sync = (micro_step == self.grad_accum_steps - 1)
 
             if self.device_type == "cuda" or self.device_type == "cpu":
-                with torch.autocast(device_type=device_type, dtype=torch.bfloat16):
-                    logits, loss = model(x, y)
+                with torch.autocast(device_type=self.device_type, dtype=torch.bfloat16):
+                    logits, loss = self.model(x, y)
             elif self.device_type == "mps":
-                logits, loss = model(x, y)
+                logits, loss = self.model(x, y)
 
             # we have to scale the loss to account for gradient accumulation,
             # because the gradients just add on each successive backward().
@@ -221,7 +250,7 @@ class Trainer:
         if self.ddp:
             dist.all_reduce(loss_accum, op=dist.ReduceOp.AVG)
 
-        norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
 
         # determine and set the learning rate for this iteration
         lr = self.get_lr(step)
@@ -231,7 +260,13 @@ class Trainer:
         if self.device_type == "cuda":
             torch.cuda.synchronize()  # wait for the GPU to finish work
 
-        return loss_accum, lr, norm
+        # Calculate tokens per second
+        tokens_processed = self.train_loader.B * self.train_loader.T * self.grad_accum_steps * self.ddp_world_size
+        t1 = time.time()
+        dt = t1 - time.time()
+        tokens_per_sec = tokens_processed / dt
+
+        return loss_accum, lr, norm, tokens_per_sec
 
 
 if __name__ == "__main__":
