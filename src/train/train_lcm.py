@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from torch.nn import functional as F
 
-
+from karpathy_gpt2.train_gpt2 import device_type
 from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT, CoreLCMConfig
 from src.model.lower_lcm import Lower_LCM
 from src.train.train_config import TrainerConfig, setup_ddp, create_log_file_and_dir
@@ -165,7 +165,7 @@ class Trainer:
         self.val_loader.reset()
         with torch.no_grad():
             val_loss_accum = 0.0
-            val_loss_steps = 20 # TODO: change before training to 20
+            val_loss_steps = 5 # TODO: change before training to 20
             for _ in range(val_loss_steps):
                 x, y = self.val_loader.next_batch()
                 x, y = x.to(self.device), y.to(self.device)
@@ -205,7 +205,7 @@ class Trainer:
                 model.require_backward_grad_sync = (micro_step == self.grad_accum_steps - 1)
 
             if self.device_type == "cuda" or self.device_type == "cpu":
-                with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
+                with torch.autocast(device_type=device_type, dtype=torch.bfloat16):
                     logits, loss = model(x, y)
             elif self.device_type == "mps":
                 logits, loss = model(x, y)
