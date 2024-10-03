@@ -74,6 +74,7 @@ class Trainer:
             model = DDP(model, device_ids=[self.ddp_local_rank])
 
         self.raw_model = model.module if self.ddp else model  # always contains the "raw" unwrapped model
+        
         self.optimizer = self.raw_model.configure_optimizers(
             weight_decay=config.weight_decay,
             learning_rate=config.learning_rate,
@@ -92,7 +93,7 @@ class Trainer:
 
         # Initialize TensorBoard SummaryWriter
         if self.master_process:
-            self.writer = SummaryWriter(log_dir=self.log_dir)
+            self.writer = SummaryWriter(log_dir=os.path.join(self.log_dir, "tensorboard", str(time.datetime))) 
         else:
             self.writer = None
 
@@ -150,7 +151,7 @@ class Trainer:
             t1 = time.time()
             dt = t1 - t0  # time difference in seconds
             tokens_processed = self.train_loader.B * self.train_loader.T * self.grad_accum_steps * self.ddp_world_size
-            tokens_per_sec = tokens_processed / dt
+            tokens_per_sec = tokens_processed / dt if dt>0.0 else 1e14
             if self.master_process or not self.ddp:
                 print(
                     f"step {step:5d} | loss: {loss_accum.item():.6f} | lr {lr:.4e} | norm: {norm:.4f} | dt: {dt * 1000:.2f}ms | tok/sec: {tokens_per_sec:.2f}")
@@ -177,7 +178,6 @@ class Trainer:
 
         checkpoint = {
             'model': self.raw_model.state_dict(),
-            'config': self.raw_model.config,
             'step': step,
             'val_loss': val_loss_accum.item(),
             'optimizer': self.optimizer.state_dict(),
@@ -264,7 +264,7 @@ class Trainer:
         tokens_processed = self.train_loader.B * self.train_loader.T * self.grad_accum_steps * self.ddp_world_size
         t1 = time.time()
         dt = t1 - time.time()
-        tokens_per_sec = tokens_processed / dt
+        tokens_per_sec = tokens_processed / dt if dt>0.0 else 1e14
 
         return loss_accum, lr, norm, tokens_per_sec
 

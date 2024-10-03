@@ -16,7 +16,7 @@ def load_tokens(filename, device=None):
     if device is None:
         print("WARNING: device not specified during data loading. loading on cpu")
         device = torch.device('cpu')
-    npt = np.load(filename, num_wo)
+    npt = np.load(filename)
     npt = npt.astype(np.int32)
     ptt = torch.tensor(npt, dtype=torch.long, device=device)
     return ptt
