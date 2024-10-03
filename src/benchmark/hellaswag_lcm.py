@@ -33,7 +33,7 @@ from tqdm import tqdm
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from transformers import GPT2LMHeadModel
+from transformers import GPT2LMHeadModel, BertTokenizer
 
 
 from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT, CoreLCMConfig
@@ -65,7 +65,7 @@ hellaswags = {
     "test": "https://raw.githubusercontent.com/rowanz/hellaswag/master/data/hellaswag_test.jsonl",
 }
 
-enc = tiktoken.get_encoding("gpt2")
+enc = BertTokenizer.from_pretrained("bert-base-uncased")
 
 def download(split):
     """Downloads HellaSwag DATA_CACHE_DIR"""
@@ -100,7 +100,7 @@ def render_example(example):
     tok_rows = []
     mask_rows = []
     for end in endings:
-        end_tokens = enc.encode(" " + end) # note: prepending " " because GPT-2 tokenizer
+        end_tokens = enc.encode(end) # note: in gpt2 tokenizer we needed to prepend " " to the text
         tok_rows.append(ctx_tokens + end_tokens)
         mask_rows.append([0]*len(ctx_tokens) + [1]*len(end_tokens))
         data["ending_tokens"].append(end_tokens)
@@ -124,7 +124,7 @@ def iterate_examples(split):
             yield example
 
 @torch.no_grad()
-def evaluate(model_type, device, one_example_every_n = 1):
+def evaluate_gpt(model_type, device, one_example_every_n = 1):
 
     torch.set_float32_matmul_precision('high') # use tf32
     model = GPT2LMHeadModel.from_pretrained(model_type)
@@ -189,12 +189,12 @@ def evaluate_lcm_checkpoint(model_checkpoint, n_tokens_per_concept, device, one_
     checkpoint = torch.load(model_checkpoint, map_location=torch.device(device), weights_only=False)
     state_dict = checkpoint["model"]
     model_lower = Lower_LCM(config_core=CoreLCMConfig())
-    model_lower.load_state_dict(state_dict, strict=True)
+    model_lower.load_state_dict(state_dict, strict=False)
     model = model_lower.core.to(device)
     model.eval()
     # model = torch.compile(model) # optionally torch compile the model and the encoder, helpful for bigger models
 
-    encoder = Encoder(n_tokens_per_concept=n_tokens_per_concept).to(device)
+    encoder = Encoder(n_tokens_per_concept=n_tokens_per_concept).to(device) #TODO: change to model.encoder
     encoder.eval()
 
     num_correct_norm = 0
@@ -212,12 +212,12 @@ def evaluate_lcm_checkpoint(model_checkpoint, n_tokens_per_concept, device, one_
         tokens = tokens.to(device)
         token_mask = token_mask.to(device)
 
-        context_concepts = encoder.encode_tokens(torch.Tensor(data["ctx_tokens"]).to(device))
+        context_concepts = encoder.encode_tokens(torch.tensor(data["ctx_tokens"], device=device))
 
         # Pad ending tokens to the maximum length
         max_len = max(len(ending) for ending in data["ending_tokens"])
         padded_endings = [ending + [encoder.tokenizer.pad_token_id] * (max_len - len(ending)) for ending in data["ending_tokens"]]
-        ending_concepts = encoder.encode_tokens(torch.Tensor(padded_endings).to(device))
+        ending_concepts = encoder.encode_tokens(torch.tensor(padded_endings).to(device))
 
         # concatenate the context and the ending concepts by copying the context concepts 4 times and pasting them before ending concepts
         concepts_real = torch.cat([context_concepts.repeat(4, 1, 1), ending_concepts], dim=1)
@@ -237,7 +237,7 @@ def evaluate_lcm_checkpoint(model_checkpoint, n_tokens_per_concept, device, one_
         concept_mask = torch.cat([torch.zeros(context_concepts.shape[:-1],dtype=torch.float32, device=device).repeat(4, 1), ending_concept_mask], dim=1)
 
         # get the forecasted concepts
-        concept_forecast, loss = model(concepts_real)
+        concept_forecast, loss = model(target=concepts_real)
 
         # evaluate the autoregressive loss at all positions
         shift_concepts_forecast = (concept_forecast[..., :-1, :]).contiguous()
@@ -391,9 +391,9 @@ def evaluate_lower_lcm(model, n_tokens_per_concept, device, one_example_every_n=
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    checkpoint_file = os.path.join(DATA_ROOT_PATH,"checkpoints",  "lower_lcm_ntc-4_nlayer-12_nhead-16_n_embd-1024_step-06200.pt")
+    checkpoint_file = os.path.join(DATA_ROOT_PATH,"checkpoints",  "lower_lcm_ntc-8_nlayer-12_nhead-8_n_embd-1024_step-04100.pt")
     parser.add_argument("-m", "--model_checkpoint", type=str, default= checkpoint_file, help="the checkpoint file to use")
-    parser.add_argument("-ntc", "--n_tokens_per_concept", type=int, default=4, help="the number of tokens per concept")
+    parser.add_argument("-ntc", "--n_tokens_per_concept", type=int, default=8, help="the number of tokens per concept")
     parser.add_argument("-d", "--device", type=str, default="mps", help="the device to use")
     parser.add_argument("-n", "--one_example_every_n", type=int, default=10, help="evaluate one example every n")
     args = parser.parse_args()

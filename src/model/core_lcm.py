@@ -8,6 +8,7 @@ from torch.nn import functional as F
 
 from src.model.config import N_TOKENS_PER_CONCEPT
 from src.model.gpt_block import Block
+from src.model.config import LCMConfig
 
 
 class CoreLCM(nn.Module):

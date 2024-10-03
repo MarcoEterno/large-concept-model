@@ -19,9 +19,7 @@ class Lower_LCM(nn.Module):
         self.encoder = Encoder(n_tokens_per_concept=config_core.n_tokens_per_concept)
         self.core = CoreLCM(config_core)
 
-        self.internal_concepts = torch.empty(size=(0, config_core.n_embd))
-
-        self.enc = tiktoken.get_encoding("gpt2")
+        self.enc = self.encoder.tokenizer# tiktoken.get_encoding("gpt2")
         self.rng = torch.Generator()
         self.rng.manual_seed(42)
         # self.to(DEVICE)  # TODO: exercise
@@ -39,6 +37,7 @@ class Lower_LCM(nn.Module):
             loss: tensor of shape (B, T)
         """
         # ATTENTION: the forward target is token embeddings, so we need to encode the target
+        # TODO: check that input tokens are always tokenized with BERT
         x = self.encoder(x)
         target = self.encoder(target) if target is not None else None
         x, loss_core = self.core(x, target)  # x is of shape (B, C, D), loss is of shape (B, C)
@@ -87,7 +86,7 @@ class Lower_LCM(nn.Module):
         return [self.enc.decode(sentence.tolist()) for sentence in tokens]
 
     def load(self, checkpoint_path, device):
-        checkpoint = torch.load(checkpoint_path, map_location=torch.device(device))  # TODO: map it on device
+        checkpoint = torch.load(checkpoint_path, map_location=torch.device(device))
         self.load_state_dict(checkpoint['model'], strict=False)# TODO change to strict=True
         self.eval()
         return self
@@ -101,5 +100,5 @@ if __name__ == '__main__':
 
     model = Lower_LCM(config_core=CoreLCMConfig())
     device = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_built() else 'cpu'
-    model.load(checkpoint_path=f"{DATA_ROOT_PATH}/checkpoints/core_lcm_04500.pt", device=device)
+    model.load(checkpoint_path=f"{DATA_ROOT_PATH}/checkpoints/lower_lcm_ntc-8_nlayer-12_nhead-8_n_embd-1024_step-04100.pt", device=device)
     print(model)

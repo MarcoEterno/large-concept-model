@@ -61,15 +61,29 @@ class Encoder(nn.Module):
 
         return self._encode(inputs, encode_in_single_concept=encode_in_single_concept)
 
-    def _encode(self, inputs: dict[str, torch.Tensor], encode_in_single_concept = False) -> torch.Tensor:
+    def _encode(self, inputs: dict[str, torch.Tensor], encode_in_single_concept=False) -> torch.Tensor:
         original_shape = inputs['input_ids'].shape
 
         if not encode_in_single_concept:
-            # split tokens into concepts
+            # Pad input_ids and attention_mask to multiple of n_tokens_per_concept
+            seq_length = inputs['input_ids'].size(1)
+            remainder = seq_length % self.n_tokens_per_concept
+            if remainder != 0:
+                pad_length = self.n_tokens_per_concept - remainder
+                pad_token_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else 0
+                padding = torch.full((inputs['input_ids'].size(0), pad_length), pad_token_id,
+                                     device=inputs['input_ids'].device)
+                inputs['input_ids'] = torch.cat([inputs['input_ids'], padding], dim=1)
+                attention_padding = torch.zeros((inputs['attention_mask'].size(0), pad_length),
+                                                device=inputs['attention_mask'].device)
+                inputs['attention_mask'] = torch.cat([inputs['attention_mask'], attention_padding], dim=1)
+
+            # Split tokens into concepts
             inputs = {k: t.reshape(-1, self.n_tokens_per_concept) for k, t in inputs.items()}
 
-        # encode token groups into concepts
-        return self._encode_tokens_into_concepts(inputs, original_shape=original_shape, encode_in_single_concept = encode_in_single_concept)
+        # Encode token groups into concepts
+        return self._encode_tokens_into_concepts(inputs, original_shape=original_shape,
+                                                 encode_in_single_concept=encode_in_single_concept)
 
     def _encode_tokens_into_concepts(self, inputs: dict[str, torch.Tensor], original_shape,
                                      no_grad=True, encode_in_single_concept = False) -> torch.Tensor:

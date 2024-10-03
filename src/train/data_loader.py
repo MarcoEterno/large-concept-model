@@ -167,7 +167,6 @@ class DataLoaderWithConcepts:
 
 
     def next_batch(self):
-        # TODO: remember to change y with x for concept embedding
         B, T = self.B, self.T
         N = N_TOKENS_PER_CONCEPT  # Assuming N_TOKENS_PER_CONCEPT is defined
 
