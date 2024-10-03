@@ -7,8 +7,8 @@ import numpy as np
 import torch
 from torch.nn import functional as F
 
-from karpathy_gpt2.train_gpt2 import device_type
-from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT, CoreLCMConfig
+
+from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT, CoreLCMConfig, device_type
 from src.model.lower_lcm import Lower_LCM
 from src.train.train_config import TrainerConfig, setup_ddp, create_log_file_and_dir
 from src.train.data_loader import DataLoaderLite
