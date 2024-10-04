@@ -12,8 +12,8 @@ from src.model.config import N_TOKENS_PER_CONCEPT, DATA_ROOT_PATH
 
 @dataclass
 class TrainerConfig:
-    total_batch_size: int = 524288  # 2**19, ~0.5M, in number of tokens
-    B: int = 16  # micro batch size
+    total_batch_size: int = 524288 * 4 # 2**19, ~0.5M, in number of tokens
+    B: int = 256  # micro batch size
     T: int = 1024  # sequence length, was 1024 in GPT-2
 
     # TODO: change for cloud run!
