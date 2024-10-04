@@ -14,13 +14,14 @@ from torch.utils.tensorboard import SummaryWriter
 from src.model.config import N_TOKENS_PER_CONCEPT, DecoderConfig
 from src.model.decoder import Decoder
 from src.train.data_loader import DataLoaderWithConcepts
-from src.train.train_config import TrainerConfig, setup_ddp, create_log_file_and_dir
+from src.train.train_config import TrainerConfig, setup_ddp, create_log_file_and_dir, create_tensorboard_dir
 
 # -----------------------------------------------------------------------------
 # simple launch:
 # python train_lcm.py
 # DDP launch for e.g. 4 GPUs:
 # torchrun --standalone --nproc_per_node=4 train_decoder.py
+# python -m cProfile -o output.prof train_gpt.py
 
 
 # importing this class seems to take a lot of time
@@ -81,7 +82,7 @@ class Trainer:
 
         self.log_file, self.log_dir = create_log_file_and_dir(self)
         # Initialize TensorBoard SummaryWriter
-        self.writer = SummaryWriter(log_dir=self.log_dir, filename_suffix=time.strftime('_%Y%m%d_%H%M%S'))
+        self.writer = SummaryWriter(log_dir=create_tensorboard_dir(self), filename_suffix=time.strftime('_%Y%m%d_%H%M%S'))
 
         # TODO: chage to self.config.---
         self.max_lr = config.max_lr

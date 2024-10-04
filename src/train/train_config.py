@@ -12,8 +12,8 @@ from src.model.config import N_TOKENS_PER_CONCEPT, DATA_ROOT_PATH
 
 @dataclass
 class TrainerConfig:
-    total_batch_size: int = 524288 * 4 # 2**19, ~0.5M, in number of tokens
-    B: int = 256  # micro batch size
+    total_batch_size: int = 524288 * 2 # 2**19, ~0.5M, in number of tokens
+    B: int = 64 # micro batch size
     T: int = 1024  # sequence length, was 1024 in GPT-2
 
     # TODO: change for cloud run!
@@ -69,10 +69,13 @@ def setup_ddp():
     return ddp, ddp_rank, ddp_local_rank, ddp_world_size, master_process, device
 
 def create_log_file_and_dir(self):
-    log_dir = os.path.join(DATA_ROOT_PATH, "log")
+    log_dir = os.path.join(DATA_ROOT_PATH, "logs", f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}")
     os.makedirs(log_dir, exist_ok=True)
     # call the log file as the current time
     log_file = os.path.join(log_dir, f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log")
     with open(log_file, "w") as f:  # open for writing to clear the file
         pass
     return log_file, log_dir
+
+def create_tensorboard_dir(self):
+    return os.path.join(DATA_ROOT_PATH, "tensorboard")
