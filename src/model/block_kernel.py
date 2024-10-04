@@ -207,12 +207,12 @@ class GeneralCausalSelfAttention(nn.Module):
         # reshaping the matrices
         Qct = Qct.view(B, T, self.n_head, Dc // self.n_head).transpose(1, 2)
         Kct = Kct.view(B, T, self.n_head, Dc // self.n_head).transpose(1, 2)
-        Vct = Vct.view(B, T, self.n_head, Dc // self.n_head).transpose(1, 2)
+        #Vct = Vct.view(B, T, self.n_head, Dc // self.n_head).transpose(1, 2)
         Vtt = Vtt.view(B, T, self.n_head, D // self.n_head).transpose(1, 2)
-        Qcc = Qcc.view(B, C, self.n_head, Dc // self.n_head).transpose(1, 2)
+        #Qcc = Qcc.view(B, C, self.n_head, Dc // self.n_head).transpose(1, 2)
         Kcc = Kcc.view(B, C, self.n_head, Dc // self.n_head).transpose(1, 2)
         Vtc = Vtc.view(B, C, self.n_head, D // self.n_head).transpose(1, 2)
-        Vcc = Vcc.view(B, C, self.n_head, Dc // self.n_head).transpose(1, 2)
+        #Vcc = Vcc.view(B, C, self.n_head, Dc // self.n_head).transpose(1, 2)
 
         """
         # MATRICES FOR THE COMPRESSED IMPLEMENTATION
@@ -261,22 +261,22 @@ class MLP(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.t_fc = nn.Linear(config.n_embd, 4 * config.n_embd)
-        self.c_fc = nn.Linear(config.concept_embedding_dim, 4 * config.concept_embedding_dim)
+        #self.c_fc = nn.Linear(config.concept_embedding_dim, 4 * config.concept_embedding_dim)
         self.gelu = nn.GELU(approximate='tanh')
         self.t_proj = nn.Linear(4 * config.n_embd, config.n_embd)
         self.t_proj.NANOGPT_SCALE_INIT = 1
-        self.c_proj = nn.Linear(4 * config.concept_embedding_dim, config.concept_embedding_dim)
-        self.c_proj.NANOGPT_SCALE_INIT = 1
+        #self.c_proj = nn.Linear(4 * config.concept_embedding_dim, config.concept_embedding_dim)
+        #self.c_proj.NANOGPT_SCALE_INIT = 1
 
     def forward(self, xt, xc):
         xt = self.t_fc(xt)
-        xc = self.c_fc(xc)
+        #xc = self.c_fc(xc)
 
         xt = self.gelu(xt)
-        xc = self.gelu(xc)
+        #xc = self.gelu(xc)
 
         xt = self.t_proj(xt)
-        xc = self.c_proj(xc)
+        #xc = self.c_proj(xc)
         return xt, xc
 
 
@@ -284,19 +284,19 @@ class GeneralBlock(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.ln_1t = nn.LayerNorm(config.n_embd)
-        self.ln_1c = nn.LayerNorm(config.concept_embedding_dim)
+        # self.ln_1c = nn.LayerNorm(config.concept_embedding_dim)
         self.attn = GeneralCausalSelfAttention(config)
         self.ln_2t = nn.LayerNorm(config.n_embd)
-        self.ln_2c = nn.LayerNorm(config.concept_embedding_dim)
+        #self.ln_2c = nn.LayerNorm(config.concept_embedding_dim)
         self.mlp = MLP(config)
 
     def forward(self, xt, xc):
-        attn_xt, attn_xc = self.attn(self.ln_1t(xt), self.ln_1c(xc))
+        attn_xt, attn_xc = self.attn(self.ln_1t(xt), xc) # self.ln_1c(xc) in general
         xt = xt + attn_xt
-        xc = xc + attn_xc
-        mlp_xt, mlp_xc = self.mlp(self.ln_2t(xt), self.ln_2c(xc))
+        # xc = xc + attn_xc
+        mlp_xt, mlp_xc = self.mlp(self.ln_2t(xt), xc) # self.ln_1c(xc) in general
         xt = xt + mlp_xt
-        xc = xc + mlp_xc
+        # xc = xc + mlp_xc
         return xt, xc
 
 def create_causal_attention_mask(B, n_tokens_per_concept, n_rows, n_cols, device):
