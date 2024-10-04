@@ -390,14 +390,20 @@ def evaluate_lower_lcm(model, n_tokens_per_concept, device, one_example_every_n=
 
 if __name__ == "__main__":
     import argparse
+    from pathlib import Path
     parser = argparse.ArgumentParser()
     checkpoint_file = os.path.join(DATA_ROOT_PATH,"checkpoints",  "lower_lcm_ntc-8_nlayer-12_nhead-8_n_embd-1024_step-04100.pt")
+    # checkpoint_file = os.path.join(os.getcwd(), "../../data/checkpoints/lower_lcm_ntc-8_nlayer-12_nhead-8_n_embd-1024_step-06000.pt")
     parser.add_argument("-m", "--model_checkpoint", type=str, default= checkpoint_file, help="the checkpoint file to use")
     parser.add_argument("-ntc", "--n_tokens_per_concept", type=int, default=8, help="the number of tokens per concept")
     parser.add_argument("-d", "--device", type=str, default="mps", help="the device to use")
     parser.add_argument("-n", "--one_example_every_n", type=int, default=10, help="evaluate one example every n")
     args = parser.parse_args()
     evaluate_lcm_checkpoint(args.model_checkpoint, args.n_tokens_per_concept, args.device, args.one_example_every_n)
+    """
+    lower_lcm_ntc-8_nlayer-12_nhead-8_n_embd-1024_step-04100.pt
+    lower_lcm_ntc-8_nlayer-12_nhead-8_n_embd-1024_step-06000.pt
+    """
 
     # scores for lower lcm with compression = 10:
     # ntc=8 => acc_norm: 0.2716
