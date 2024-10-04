@@ -84,7 +84,8 @@ class Trainer:
         # Create log directory with datetime format
         if self.master_process:
             self.start_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            self.log_dir = os.path.join('logs', self.start_time)
+            path = os.path.abspath(os.path.join(os.getcwd(), '..', '..', 'data', 'logs'))
+            self.log_dir = os.path.join(path, self.start_time)
             os.makedirs(self.log_dir, exist_ok=True)
             self.log_file = os.path.join(self.log_dir, 'training_log.txt')
         else:
