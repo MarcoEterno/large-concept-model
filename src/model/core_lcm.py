@@ -41,24 +41,24 @@ class CoreLCM(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, input_concepts: torch.Tensor, targets=None):
+    def forward(self, concepts: torch.Tensor, target=None):
         # input_concepts is of shape (B, C, n_embd)  # B: batch size, C: context window, n_embd: embedding dimension
-        B, C, D = input_concepts.size()
+        B, C, D = concepts.size()
         assert C <= self.config.block_size, f"Cannot forward sequence of length {C}, block size is only {self.config.block_size}"
         assert D == self.config.n_embd, f"Dimensionality of the input should be {self.config.n_embd}, but got {D}"
 
         # forward the token and position embeddings
-        pos = torch.arange(0, C, dtype=torch.long, device=input_concepts.device)  # shape (C) # TODO change to generator with yield
+        pos = torch.arange(0, C, dtype=torch.long, device=concepts.device)  # shape (C) # TODO change to generator with yield
         pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (C, n_embd)
-        x = input_concepts + pos_emb
+        x = concepts + pos_emb
         # forward the blocks of the transformer
         for block in self.transformer.h:
             x = block(x)
         # forward the final layernorm and the classifier
         x = self.transformer.ln_f(x)  # (B, C, n_embd)
         loss = None
-        if targets is not None:  # (B, 1, n_embd)
-            loss = 1 - F.cosine_similarity(x, targets, dim=-1).mean()
+        if target is not None:  # (B, 1, n_embd)
+            loss = 1 - F.cosine_similarity(x, target, dim=-1).mean()
 
         return x, loss  # (batch size, concept contex window, n_embd), loss
 
