@@ -231,7 +231,7 @@ if __name__ == "__main__":
     def sample_model_inference():
         # load the model from checkpoint
         model = Decoder(DecoderConfig())
-        checkpoint_path = "/Users/marcoeterno/Desktop/Coding/large-concept-model/data/checkpoints/decoder_ntc-8_nlayer-12_nhead-16_n_embd-768-concept_dim1024step-02600.pt"
+        checkpoint_path = "/Users/marcoeterno/Desktop/Coding/large-concept-model/data/checkpoints/decoder_ntc-8_nlayer-12_nhead-16_n_embd-768-concept_dim1024step-11400.pt"
         print(checkpoint_path)
         model.load_checkpoint(checkpoint_path, device='mps')
         model.eval()
@@ -272,27 +272,28 @@ if __name__ == "__main__":
 
     def test_model_inference_with_given_concepts():
         # load the decoder from checkpoint
+
+        device = 'cpu' if torch.backends.mps.is_built() else 'cuda' if torch.cuda.is_available() else 'cpu'
+
         model = Decoder(DecoderConfig())
-        checkpoint_path = "/Users/marcoeterno/Desktop/Coding/large-concept-model/data/checkpoints/decoder_ntc-8_nlayer-12_nhead-16_n_embd-768-concept_dim1024step-02600.pt"
+        checkpoint_path = "/Users/marcoeterno/Desktop/Coding/large-concept-model/data/checkpoints/decoder_ntc-8_nlayer-12_nhead-16_n_embd-768-concept_dim1024step-19072.pt"
         print(checkpoint_path)
-        model.load_checkpoint(checkpoint_path, device='mps')
+        model.load_checkpoint(checkpoint_path, device=device)
         model.eval()
         print(model)
 
-        encoder = Encoder(n_tokens_per_concept=8).to('mps')
+        encoder = Encoder(n_tokens_per_concept=8).to(device)
 
         # generate a sequence of tokens
-        text = " "
-#
-#         """Non-steroidal anti-inflammatory drugs are members of a therapeutic drug class which reduces pain, decreases inflammation, decreases fever, and prevents blood clots. Side effects depend on the specific drug, its dose and duration of use, but largely include an increased risk of gastrointestinal ulcers and bleeds, heart attack, and kidney disease.
-# The term non-steroidal, common from around 1960, distinguishes these drugs from corticosteroids, another class of anti-inflammatory drugs, which during the 1950s had acquired a bad reputation due to overuse and side-effect problems after their introduction in 1948
-# """
-        beginning_text = "i want to destroy the world, Non-steroidal anti-inflammatory drugs are members of a therapeutic drug class which reduces pain, decreases inflammation, decreases fever, and prevents blood clots. Side effects depend on the specific drug, its dose and duration of use, but largely include an increased risk of gastrointestinal ulcers and bleeds, heart attack, and kidney disease."
+        text = """Non-steroidal anti-inflammatory drugs are members of a therapeutic drug class which reduces pain, decreases inflammation, decreases fever, and prevents blood clots. Side effects depend on the specific drug, its dose and duration of use, but largely include an increased risk of gastrointestinal ulcers and bleeds, heart attack, and kidney disease.
+The term non-steroidal, common from around 1960, distinguishes these drugs from corticosteroids, another class of anti-inflammatory drugs, which during the 1950s had acquired a bad reputation due to overuse and side-effect problems after their introduction in 1948
+"""
+        beginning_text = "Non-steroidal anti-inflammatory drugs are members of a therapeutic drug class which reduces pain,"
 
-        xt = model.tokenizer.encode(text, return_tensors='pt').to('mps')
+        xt = model.tokenizer.encode(beginning_text, return_tensors='pt').to(device)
 
-        xc = encoder.encode_text(beginning_text , encode_in_single_concept=False) # size (1, 8, 1024)
-        xt = model.generate(xt, xc=xc, max_len=100, temperature=0.1, top_k=1, top_p=0.0, device='mps',
+        xc = encoder.encode_text(text , encode_in_single_concept=False) # size (1, 8, 1024)
+        xt = model.generate(xt, xc=xc, max_len=100, temperature=0.1, top_k=1, top_p=0.0, device=device,
                        print_to_video=True)
         print(model.tokenizer.decode(xt.squeeze(0, 1)))
 
