@@ -20,7 +20,7 @@ from src.train.train_config import TrainerConfig, setup_ddp, create_log_file_and
 # simple launch:
 # python train_lcm.py
 # DDP launch for e.g. 4 GPUs:
-# torchrun --standalone --nproc_per_node=4 train_decoder.py
+# torchrun --standalone --nproc_per_node=8 train_decoder.py
 # python -m cProfile -o output.prof train_gpt.py
 
 
