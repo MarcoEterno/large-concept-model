@@ -249,10 +249,10 @@ class GeneralCausalSelfAttention(nn.Module):
         # output heads reassemble
         xt_new = xt_embed.transpose(1, 2).contiguous().view(B, T, D)
         # xc_new = xc_embed.transpose(1, 2).contiguous().view(B, C, Dc)
-        xc_new = xc
+        # xc_new = xc
         # output projection
         xt = self.t_proj(xt_new)
-        xc = self.c_proj(xc_new)
+        # xc = self.c_proj(xc_new)
 
         return xt, xc
 
