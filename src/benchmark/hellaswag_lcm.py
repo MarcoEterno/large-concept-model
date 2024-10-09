@@ -402,7 +402,7 @@ if __name__ == "__main__":
     import argparse
     from src.model.config import DEVICE
     parser = argparse.ArgumentParser()
-    checkpoint_file = os.path.join(DATA_ROOT_PATH,"checkpoints",  "lower_lcm_ntc-8_nlayer-12_nhead-8_n_embd-1024_step-06000.pt")
+    checkpoint_file = os.path.join(DATA_ROOT_PATH,"checkpoints",  "lower_lcm_ntc-8_nlayer-12_nhead-8_n_embd-1024_step-04100.pt")
 
     model=load_checkpoint(model_checkpoint=checkpoint_file, device=DEVICE)
 
