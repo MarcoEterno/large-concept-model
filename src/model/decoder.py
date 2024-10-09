@@ -276,10 +276,9 @@ if __name__ == "__main__":
         device = 'cpu' if torch.backends.mps.is_built() else 'cuda' if torch.cuda.is_available() else 'cpu'
 
         model = Decoder(DecoderConfig())
-        checkpoint_path = "/home/marco.eterno/large-concept-model/data/logs/2024-10-06_07-46-38/decoder_ntc-8_nlayer-12_nhead-16_n_embd-768-concept_dim1024step-01600.pt"
+        checkpoint_path = "/Users/marcoeterno/Desktop/Coding/large-concept-model/data/checkpoints/H100-decoder_ntc-8_nlayer-12_nhead-16_n_embd-768-concept_dim1024step-19072.pt"
         print(checkpoint_path)
         model.load_checkpoint(checkpoint_path, device=device)
-        model.to(device)
         model.eval()
         print(model)
 
