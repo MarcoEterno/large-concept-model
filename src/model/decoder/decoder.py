@@ -3,11 +3,11 @@ import inspect
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from transformers import GPT2Tokenizer, BertTokenizer
+from transformers import GPT2Tokenizer
 
-from src.model.block_kernel import GeneralBlock
+from src.model.kernel.block_kernel import GeneralBlock
 from src.model.config import DecoderConfig
-from src.model.encoder import Encoder
+from src.model.encoder.encoder import Encoder
 
 
 def top_k_top_p_filtering(logits, top_k: int, top_p: float = 0.0):
@@ -231,7 +231,7 @@ if __name__ == "__main__":
     def sample_model_inference():
         # load the model from checkpoint
         model = Decoder(DecoderConfig())
-        checkpoint_path = "/Users/marcoeterno/Desktop/Coding/large-concept-model/data/checkpoints/decoder_ntc-8_nlayer-12_nhead-16_n_embd-768-concept_dim1024step-02600.pt"
+        checkpoint_path = "/data/checkpoints/decoder_ntc-8_nlayer-12_nhead-16_n_embd-768-concept_dim1024step-02600.pt"
         print(checkpoint_path)
         model.load_checkpoint(checkpoint_path, device='mps')
         model.eval()

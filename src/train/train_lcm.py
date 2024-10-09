@@ -1,19 +1,15 @@
 import math
 import os
 import time
-from dataclasses import dataclass
 import datetime
 
-import numpy as np
 import torch
-from torch.nn import functional as F
 from torch.utils.tensorboard import SummaryWriter
 
-from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT, CoreLCMConfig, device_type
-from src.model.lower_lcm import Lower_LCM
+from src.model.config import CoreLCMConfig
+from src.model.core.lower_lcm import Lower_LCM
 from src.train.train_config import TrainerConfig, setup_ddp, create_tensorboard_dir
 from src.train.data_loader import DataLoaderLite
-from src.benchmark.hellaswag_lcm import evaluate_lower_lcm
 # -----------------------------------------------------------------------------
 # simple launch:
 # python train_lcm.py

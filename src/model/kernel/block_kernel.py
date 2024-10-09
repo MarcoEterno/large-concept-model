@@ -396,7 +396,7 @@ if __name__ == '__main__':
 
     def test_new_block_equals_gpt_block():
         from src.model.config import DecoderConfig
-        from src.model.gpt_block import Block as GPTBlock
+        from src.model.kernel.gpt_block import Block as GPTBlock
         import torch
         config = DecoderConfig()
 

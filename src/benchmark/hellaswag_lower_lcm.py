@@ -28,18 +28,15 @@ The validation set of HellaSwag has a total of 10,042 examples.
 import os
 import json
 import requests
-import tiktoken
 from tqdm import tqdm
 import torch
-import torch.nn as nn
 from torch.nn import functional as F
 from transformers import GPT2LMHeadModel, BertTokenizer
 
 
-from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT, CoreLCMConfig
-from src.model.core_lcm import CoreLCM
-from src.model.encoder import Encoder
-from src.model.lower_lcm import Lower_LCM
+from src.model.config import DATA_ROOT_PATH, CoreLCMConfig
+from src.model.encoder.encoder import Encoder
+from src.model.core.lower_lcm import Lower_LCM
 
 # -----------------------------------------------------------------------------
 DATA_CACHE_DIR = os.path.join(DATA_ROOT_PATH, "hellaswag")

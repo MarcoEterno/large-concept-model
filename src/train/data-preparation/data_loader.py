@@ -1,5 +1,4 @@
 import os
-import time
 
 import numpy as np
 import torch
@@ -8,7 +7,7 @@ from transformers import GPT2Tokenizer
 
 from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT
 
-from src.model.encoder import Encoder
+from src.model.encoder.encoder import Encoder
 from src.utils.utils import timer
 
 

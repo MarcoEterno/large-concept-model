@@ -6,7 +6,7 @@ import torch
 import torch.nn.functional as F
 
 from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT, DEVICE
-from src.model.encoder import Encoder
+from src.model.encoder.encoder import Encoder
 from src.model.gpt import GPT
 
 

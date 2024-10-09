@@ -1,6 +1,5 @@
 import logging
 
-import tiktoken
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -8,12 +7,10 @@ from torch.nn import functional as F
 from transformers import GPT2Tokenizer
 
 
-from src.model.config import CoreLCMConfig, DecoderConfig, DATA_ROOT_PATH, DEVICE
+from src.model.config import CoreLCMConfig, DATA_ROOT_PATH, DEVICE
 from src.model.config import DecoderConfig
-from src.model.core_lcm import CoreLCM
-from src.model.decoder import Decoder
-from src.model.encoder import Encoder
-from src.model.lower_lcm import Lower_LCM
+from src.model.decoder.decoder import Decoder
+from src.model.core.lower_lcm import Lower_LCM
 
 logger = logging.getLogger(__name__)
 

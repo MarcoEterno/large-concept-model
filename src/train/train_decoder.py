@@ -10,11 +10,9 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
 
 from torch.utils.tensorboard import SummaryWriter
-from torch.xpu import device
 
-
-from src.model.config import N_TOKENS_PER_CONCEPT, DecoderConfig, DEVICE
-from src.model.decoder import Decoder
+from src.model.config import DecoderConfig, DEVICE
+from src.model.decoder.decoder import Decoder
 from src.train.data_loader import DataLoaderWithConcepts
 from src.train.train_config import TrainerConfig, setup_ddp, create_log_file_and_dir, create_tensorboard_dir
 

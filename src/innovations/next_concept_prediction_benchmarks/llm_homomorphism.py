@@ -3,7 +3,7 @@ import torch
 from transformers import GPT2TokenizerFast, GPT2LMHeadModel
 
 from src.model.config import DEVICE
-from src.model.encoder import Encoder
+from src.model.encoder.encoder import Encoder
 from llm_batch_creator import get_n_tokens_inference
 
 def llm_next_concept_prediction(model, encoder, tokenizer, input_text, n_tokens_per_concept) -> torch.Tensor:

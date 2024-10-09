@@ -1,14 +1,11 @@
 import inspect
 import os
-from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-from src.model.config import N_TOKENS_PER_CONCEPT
-from src.model.gpt_block import Block
-from src.model.config import LCMConfig
+from src.model.kernel.gpt_block import Block
 
 
 class CoreLCM(nn.Module):

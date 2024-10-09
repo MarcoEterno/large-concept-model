@@ -2,7 +2,6 @@ import torch
 import torch.functional as F
 import torch.distributed as dist
 
-from karpathy_gpt2.train_gpt2 import checkpoint
 from src.benchmark.hellaswag_gpt import get_most_likely_row
 from src.model.config import DEVICE
 from src.train.train_lcm import Trainer
