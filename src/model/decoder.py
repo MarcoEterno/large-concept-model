@@ -276,7 +276,7 @@ if __name__ == "__main__":
         device = 'cpu' if torch.backends.mps.is_built() else 'cuda' if torch.cuda.is_available() else 'cpu'
 
         model = Decoder(DecoderConfig())
-        checkpoint_path = "/home/marco.eterno/large-concept-model/data/logs/2024-10-06_07-46-38/decoder_ntc-8_nlayer-12_nhead-16_n_embd-768-concept_dim1024step-01600.pt"
+        checkpoint_path = "/home/marco.eterno/large-concept-model/data/logs/2024-10-06_07-46-38/decoder_ntc-8_nlayer-12_nhead-16_n_embd-768-concept_dim1024step-03400.pt"
         print(checkpoint_path)
         model.load_checkpoint(checkpoint_path, device=device)
         model.to(device)
@@ -286,14 +286,21 @@ if __name__ == "__main__":
         encoder = Encoder(n_tokens_per_concept=8).to(device)
 
         # generate a sequence of tokens
-        text = """Non-steroidal anti-inflammatory drugs are members of a therapeutic drug class which reduces pain, decreases inflammation, decreases fever, and prevents blood clots. Side effects depend on the specific drug, its dose and duration of use, but largely include an increased risk of gastrointestinal ulcers and bleeds, heart attack, and kidney disease.
+        text1 = """Non-steroidal anti-inflammatory drugs are members of a therapeutic drug class which reduces pain, decreases inflammation, decreases fever, and prevents blood clots. Side effects depend on the specific drug, its dose and duration of use, but largely include an increased risk of gastrointestinal ulcers and bleeds, heart attack, and kidney disease.
 The term non-steroidal, common from around 1960, distinguishes these drugs from corticosteroids, another class of anti-inflammatory drugs, which during the 1950s had acquired a bad reputation due to overuse and side-effect problems after their introduction in 1948
 """
-        beginning_text = "Non-steroidal anti-inflammatory drugs are members of a therapeutic drug class which reduces pain,"
+        beginning_text1 = "Non-steroidal anti-inflammatory drugs are members of a therapeutic drug class which reduces pain,"
 
-        xt = model.tokenizer.encode(beginning_text, return_tensors='pt').to(device)
+        tex2t = """In computability theory, the halting problem is the problem of determining, from a description of an arbitrary computer program and an input, whether the program will finish running, or continue to run forever. The halting problem is undecidable, meaning that no general algorithm exists that solves the halting problem for all possible program–input pairs. The problem comes up often in discussions of computability since it demonstrates that some functions are mathematically definable but not computable.
 
-        xc = encoder.encode_text(text , encode_in_single_concept=False) # size (1, 8, 1024)
+A key part of the formal statement of the problem is a mathematical definition of a computer and program, usually via a Turing machine. The proof then shows, for any program f that might determine whether programs halt, that a "pathological" program g exists for which f makes an incorrect determination. Specifically, g is the program that, when called with some input, passes its own source and its input to f and does the opposite of what f predicts g will do. The behavior of f on g shows undecidability as it means no program f will solve the halting problem in every possible case.
+
+"""
+        beginning_text2 = "In computability theory, the halting problem is the problem of determining, from a description of an arbitrary computer program and an input, whether"
+
+        xt = model.tokenizer.encode(beginning_text1, return_tensors='pt').to(device)
+
+        xc = encoder.encode_text(text1 , encode_in_single_concept=False) # size (1, 8, 1024)
         xt = model.generate(xt, xc=xc, max_len=100, temperature=0.1, top_k=1, top_p=0.0, device=device,
                        print_to_video=True)
         print(model.tokenizer.decode(xt.squeeze(0, 1)))
