@@ -12,13 +12,10 @@ from src.model.encoder import Encoder
 from src.utils.utils import timer
 
 
-def load_tokens(filename, device=None):
-    if device is None:
-        print("WARNING: device not specified during data loading. loading on cpu")
-        device = torch.device('cpu')
+def load_tokens(filename):
     npt = np.load(filename)
     npt = npt.astype(np.int32)
-    ptt = torch.tensor(npt, dtype=torch.long, device=device)
+    ptt = torch.tensor(npt, dtype=torch.long)
     return ptt
 
 # TODO: load the tokens on device when converting to pytorch tensor
@@ -61,6 +58,9 @@ class DataLoaderLite:
         x = (buf[:-1]).view(B, T)  # inputs
         y = (buf[1:]).view(B, T)  # targets
 
+        x = x.to(self.device)
+        y = y.to(self.device)
+
         # advance the position in the tensor
         self.current_position += B * T * self.num_processes
 
@@ -88,6 +88,7 @@ class DataLoaderWithConcepts:
         assert split in {'train', 'val'}
 
         self.encoder = Encoder(n_tokens_per_concept=N_TOKENS_PER_CONCEPT).to(device)
+        self.encoder.eval()
         self.gpt2_tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
 
         # get the shard filenames
@@ -103,9 +104,8 @@ class DataLoaderWithConcepts:
         self.reset()
 
     def reset(self):
-        # state, init at shard zero
         self.current_shard = 0
-        self.tokens = load_tokens(self.shards[self.current_shard], device=self.device)
+        self.tokens = load_tokens(self.shards[self.current_shard])  # Load into CPU memory
         self.current_position = self.B * self.T * self.process_rank
 
     @timer
@@ -117,6 +117,9 @@ class DataLoaderWithConcepts:
         buf = self.tokens[self.current_position: self.current_position + B * T + 1]
         x = buf[:-1].view(B, T)  # Inputs
         y = buf[1:].view(B, T)  # Targets
+        
+        x = x.to(self.device)
+        y = y.to(self.device)
 
         # Chunk the targets into future concepts
         num_chunks = T // N
@@ -197,7 +200,9 @@ class DataLoaderWithConcepts:
         x_encoded = x_encoded["input_ids"].to(self.device)
 
         # Encode the tokens into concepts using the Encoder
-        concepts = self.encoder(x_encoded, encode_in_single_concept=True)  # Shape: (B * num_chunks, hidden_size)
+        # In next_batch()
+        with torch.no_grad():
+            concepts = self.encoder(x_encoded, encode_in_single_concept=True) # Shape: (B * num_chunks, hidden_size)
 
         # Reshape concepts to (B, num_chunks, hidden_size)
         hidden_size = concepts.size(-1)

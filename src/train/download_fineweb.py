@@ -19,7 +19,7 @@ from transformers import BertTokenizerFast, GPT2Tokenizer, BertTokenizer
 from src.model.config import DATA_ROOT_PATH
 
 # ------------------------------------------
-local_dir = "edu_fineweb10B-bert"
+local_dir = "edu_fineweb10B-gpt2"
 remote_name = "sample-10BT"
 shard_size = int(1e8)  # 100M tokens per shard, total of 100 shards
 
@@ -33,8 +33,8 @@ fw = load_dataset("HuggingFaceFW/fineweb-edu", name=remote_name, split="train")
 # init the tokenizer
 # enc = tiktoken.get_encoding("gpt2")
 # eot = enc._special_tokens['<|endoftext|>']  # end of text token
-# tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
-tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+# tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
 
 # TODO: we are discarding part of the data, and only take the first 1024 tokens. if data ever becomes a onstraint, we can work on this
 

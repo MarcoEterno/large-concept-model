@@ -4,6 +4,8 @@ import time
 
 import torch
 
+# export PYTHONPATH=/home/marco.eterno/large-concept-model
+
 # distributed computing imports
 from torch.distributed import destroy_process_group
 from torch.nn.parallel import DistributedDataParallel as DDP
