@@ -13,21 +13,22 @@ import torch.distributed as dist
 
 from torch.utils.tensorboard import SummaryWriter
 
-from src.model.config import N_TOKENS_PER_CONCEPT, DecoderConfig
-from src.model.decoder import Decoder
+from src.model.config import DecoderConfig, DEVICE
+from src.model.decoder.decoder import Decoder
 from src.train.data_loader import DataLoaderWithConcepts
-from src.train.train_config import TrainerConfig, setup_ddp, create_log_file_and_dir
+from src.train.train_config import TrainerConfig, setup_ddp, create_log_file_and_dir, create_tensorboard_dir
 
 # -----------------------------------------------------------------------------
 # simple launch:
 # python train_lcm.py
 # DDP launch for e.g. 4 GPUs:
-# torchrun --standalone --nproc_per_node=4 train_decoder.py
+# torchrun --standalone --nproc_per_node=8 train_decoder.py
+# python -m cProfile -o output.prof train_gpt.py
 
 
 # importing this class seems to take a lot of time
 class Trainer:
-    def __init__(self, model, config):
+    def __init__(self, model, config, optimizer = None):
         self.ddp, self.ddp_rank, self.ddp_local_rank, self.ddp_world_size, self.master_process, self.device = setup_ddp()
         self.device_type = "cuda" if self.device.startswith(
             "cuda") else "mps" if torch.backends.mps.is_built() else "cpu"
@@ -75,15 +76,20 @@ class Trainer:
             model = DDP(model, device_ids=[self.ddp_local_rank])
 
         self.raw_model = model.module if self.ddp else model  # always contains the "raw" unwrapped model
-        self.optimizer = self.raw_model.configure_optimizers(
-            weight_decay=config.weight_decay,
-            learning_rate=config.learning_rate,
-            device_type=self.device_type
-        )
+
+        # configure the stateful optimizer
+        if optimizer is not None:
+            self.optimizer = optimizer
+        else:
+            self.optimizer = self.raw_model.configure_optimizers(
+                weight_decay=config.weight_decay,
+                learning_rate=config.learning_rate,
+                device_type=self.device_type
+            )
 
         self.log_file, self.log_dir = create_log_file_and_dir(self)
         # Initialize TensorBoard SummaryWriter
-        self.writer = SummaryWriter(log_dir=self.log_dir, filename_suffix=time.strftime('_%Y%m%d_%H%M%S'))
+        self.writer = SummaryWriter(log_dir=create_tensorboard_dir(self), filename_suffix=time.strftime('_%Y%m%d_%H%M%S'))
 
         # TODO: chage to self.config.---
         self.max_lr = config.max_lr
@@ -99,6 +105,7 @@ class Trainer:
         self.checkpoint_freq = config.checkpoint_freq
 
     def get_lr(self, it):
+        return 1e-4 # TODO: remove this hardcoding for training from scratch
         # 1) linear warmup for warmup_iters steps
         if it < self.warmup_steps:
             return self.max_lr * (it + 1) / self.warmup_steps
@@ -187,7 +194,7 @@ class Trainer:
                     self.device)  # TODO: this should already be on device after changing the data loader
                 if self.device_type == "cuda" or self.device_type == "cpu":
                     with torch.autocast(device_type=self.device_type,
-                                        dtype=torch.bfloat16):  # bfloat16 is faster for evaluation
+                                        dtype=torch.float32):  # bfloat16 is faster for evaluation
                         logits, loss = model(x, concepts, target_tokens=y)
                 elif self.device_type == "mps":
                     logits, loss = model(x, concepts, target_tokens=y)  # MPS does not support bfloat16
@@ -223,7 +230,7 @@ class Trainer:
 
             if self.device_type == "cuda" or self.device_type == "cpu":
                 with torch.autocast(device_type=self.device_type,
-                                    dtype=torch.bfloat16):  # bfloat16 is faster for evaluation
+                                    dtype=torch.float32):  # bfloat16 is faster for evaluation
                     logits, loss = model(x, concepts, target_tokens=y)
             elif self.device_type == "mps":
                 logits, loss = model(x, concepts, target_tokens=y)  # MPS does not support bfloat16
@@ -256,6 +263,16 @@ class Trainer:
 
 
 if __name__ == "__main__":
+    device = DEVICE
     model = Decoder(DecoderConfig())
-    trainer = Trainer(model, TrainerConfig())
+    checkpoint_path = "/home/marco.eterno/large-concept-model/data/logs/2024-10-06_21-55-06/decoder_ntc-8_nlayer-12_nhead-16_n_embd-768-concept_dim1024step-19072.pt"
+    print(checkpoint_path)
+    model.load_checkpoint(checkpoint_path, device=device)
+    model.to(device)
+
+    checkpoint = torch.load(checkpoint_path)
+    optimizer_state = checkpoint['optimizer']
+    optimizer = model.configure_optimizers(weight_decay=0.1, learning_rate=1e-4, device_type=device)
+    optimizer.load_state_dict(optimizer_state)
+    trainer = Trainer(model, TrainerConfig(), optimizer = optimizer)
     trainer.run()

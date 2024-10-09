@@ -1,13 +1,11 @@
 import logging
 
-import tiktoken
 import torch
 from torch import nn
-from torch.nn import functional as F
 
 from src.model.config import CoreLCMConfig, DATA_ROOT_PATH
-from src.model.core_lcm import CoreLCM
-from src.model.encoder import Encoder
+from src.model.core.core_lcm import CoreLCM
+from src.model.encoder.encoder import Encoder
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +52,7 @@ class Lower_LCM(nn.Module):
         assert num_concepts_to_generate <= self.config_core.block_size, "Cannot generate more tokens than decoder block size"
 
         # B: batch size, T: number tokens, C: number concepts, D: embedding dimension
+        
         input_concepts = self.encoder(inputs)  # input_concepts is of shape (B, C, D)
         logger.info(f"Input encoded in {input_concepts.shape[1]} concepts")
 

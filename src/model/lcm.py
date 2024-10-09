@@ -1,39 +1,31 @@
 import logging
 
-import tiktoken
 import torch
 from torch import nn
 from torch.nn import functional as F
 
-from karpathy_gpt2.train_gpt2 import decoded
-from src.model.config import CoreLCMConfig, DATA_ROOT_PATH
+from transformers import GPT2Tokenizer
+
+
+from src.model.config import CoreLCMConfig, DATA_ROOT_PATH, DEVICE
 from src.model.config import DecoderConfig
-from src.model.core_lcm import CoreLCM
-from src.model.decoder import Decoder
-from src.model.encoder import Encoder
-from src.model.lower_lcm import Lower_LCM
+from src.model.decoder.decoder import Decoder
+from src.model.core.lower_lcm import Lower_LCM
 
 logger = logging.getLogger(__name__)
 
 
 class LCM(nn.Module):
-    def __init__(self, lcm_config, lower_lcm = None, decoder=None,  *args, **kwargs):
+    def __init__(self, lower_lcm=None, decoder=None,  device = DEVICE, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.lower_lcm = Lower_LCM(lcm_config.core) if lower_lcm is None else lower_lcm
-        self.decoder = Decoder(lcm_config.decoder) if decoder is None else decoder
+        self.lower_lcm = Lower_LCM(CoreLCMConfig).to(device) if lower_lcm is None else lower_lcm
+        self.decoder = Decoder(DecoderConfig).to(device) if decoder is None else decoder
 
-        self.config_decoder = lcm_config.decoder
-        self.config_core = lcm_config.core
-
-        self.enc = tiktoken.get_encoding("gpt2")
+        self.gpt2_tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
         self.rng = torch.Generator()
         self.rng.manual_seed(42)
-
-        self.internal_concepts = torch.empty(size=(0, self.config_core.n_embd))
-
-
-
-        # self.to(DEVICE)  # TODO: exercise
+        self.device = device
+        self.internal_concepts = torch.empty(size=(0, CoreLCMConfig.n_embd), device = self.device)
 
     @property
     def encoder(self):

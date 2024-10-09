@@ -12,27 +12,27 @@ from src.model.config import N_TOKENS_PER_CONCEPT, DATA_ROOT_PATH
 
 @dataclass
 class TrainerConfig:
-    total_batch_size: int = 524288 * 4 # 2**19, ~0.5M, in number of tokens
-    B: int = 1  # micro batch size
+    total_batch_size: int = 524288 * 2 # 2**19, ~0.5M, in number of tokens
+    B: int = 128 # micro batch size
     T: int = 1024  # sequence length, was 1024 in GPT-2
 
     # TODO: change for cloud run!
     eval_freq: int = 10
-    eval_n_examples:int = 8
+    eval_n_examples:int = 4
     eval_hellaswag_freq: int = 1
     eval_hellaswag_compression: int = 1 # TODO set to 1 for final run
     eval_model_inference_freq: int = 200000
 
 
-    checkpoint_freq: int= 200
+    checkpoint_freq: int= 400
 
-    max_lr: float = 1e-3 # 6e-4 is the default for GPT-2
-    min_lr: float = max_lr * 0.1
-    warmup_steps: int = 715
+    max_lr: float = 1e-4 # 6e-4 is the default for GPT-2
+    min_lr: float = max_lr*0.1 # * 0.1 #TODO: change to 0,1*max when starting from scratch
+    warmup_steps: int = 715# 715
     max_steps: int = 19073  # 19,073 steps is ~1 epoch, if data is 10B tokens and batch size 0.5M tokens
 
     weight_decay: float = 0.1
-    learning_rate: float = 1e-3 # 6e-4 is the default for GPT-2
+    learning_rate: float = 1e-4 # 6e-4 is the default for GPT-2
     seed: int = 1337
 
     use_compile: bool = False
@@ -69,10 +69,13 @@ def setup_ddp():
     return ddp, ddp_rank, ddp_local_rank, ddp_world_size, master_process, device
 
 def create_log_file_and_dir(self):
-    log_dir = os.path.join(DATA_ROOT_PATH, "log")
+    log_dir = os.path.join(DATA_ROOT_PATH, "logs", f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}")
     os.makedirs(log_dir, exist_ok=True)
     # call the log file as the current time
     log_file = os.path.join(log_dir, f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log")
     with open(log_file, "w") as f:  # open for writing to clear the file
         pass
     return log_file, log_dir
+
+def create_tensorboard_dir(self):
+    return os.path.join(DATA_ROOT_PATH, "tensorboard")

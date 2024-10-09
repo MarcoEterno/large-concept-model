@@ -1,24 +1,20 @@
 import math
 import os
 import time
-from dataclasses import dataclass
 import datetime
 
-import numpy as np
 import torch
-from torch.nn import functional as F
 from torch.utils.tensorboard import SummaryWriter
 
-from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT, CoreLCMConfig, device_type
-from src.model.lower_lcm import Lower_LCM
-from src.train.train_config import TrainerConfig, setup_ddp
+from src.model.config import CoreLCMConfig
+from src.model.core.lower_lcm import Lower_LCM
+from src.train.train_config import TrainerConfig, setup_ddp, create_tensorboard_dir
 from src.train.data_loader import DataLoaderLite
-from src.benchmark.hellaswag_lcm import evaluate_lower_lcm
 # -----------------------------------------------------------------------------
 # simple launch:
 # python train_lcm.py
-# DDP launch for e.g. 4 GPUs:
-# torchrun --standalone --nproc_per_node=4 train_lcm.py
+# DDP launch for e.g. 8 GPUs:
+# torchrun --standalone --nproc_per_node=8 train_lcm.py
 
 # run the training loop
 from torch.distributed import destroy_process_group
@@ -84,7 +80,8 @@ class Trainer:
         # Create log directory with datetime format
         if self.master_process:
             self.start_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            self.log_dir = os.path.join('logs', self.start_time)
+            path = os.path.abspath(os.path.join(os.getcwd(), '..', '..', 'data', 'logs'))
+            self.log_dir = os.path.join(path, self.start_time)
             os.makedirs(self.log_dir, exist_ok=True)
             self.log_file = os.path.join(self.log_dir, 'training_log.txt')
         else:
@@ -93,7 +90,7 @@ class Trainer:
 
         # Initialize TensorBoard SummaryWriter
         if self.master_process:
-            self.writer = SummaryWriter(log_dir=os.path.join(self.log_dir, "tensorboard", str(time.datetime))) 
+            self.writer = SummaryWriter(log_dir=create_tensorboard_dir(self), filename_suffix=time.strftime('_%Y%m%d_%H%M%S'))
         else:
             self.writer = None
 

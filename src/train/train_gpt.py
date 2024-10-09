@@ -2,7 +2,6 @@ import math
 import os
 import time
 
-import numpy as np
 import tiktoken
 import torch
 from torch.nn import functional as F
@@ -19,6 +18,8 @@ from src.train.data_loader import DataLoaderLite
 # python train_gpt2.py
 # DDP launch for e.g. 8 GPUs:
 # torchrun --standalone --nproc_per_node=8 train_gpt2.py
+# export PYTHONPATH=/home/marco.eterno/large-concept-model to modify python path
+
 
 # run the training loop
 from torch.distributed import init_process_group, destroy_process_group
@@ -61,8 +62,8 @@ if torch.cuda.is_available():
 
 enc = tiktoken.get_encoding("gpt2")
 
-total_batch_size = 524288  # 2**19, ~0.5M, in number of tokens
-B = 4  # micro batch size
+total_batch_size = 524288 * 4 # 2**19, ~0.5M, in number of tokens
+B = 1 # micro batch size
 T = 1024  # sequence length
 assert total_batch_size % (
         B * T * ddp_world_size) == 0, "make sure total_batch_size is divisible by B * T * ddp_world_size"
