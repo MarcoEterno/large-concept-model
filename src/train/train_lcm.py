@@ -11,14 +11,14 @@ from torch.utils.tensorboard import SummaryWriter
 
 from src.model.config import DATA_ROOT_PATH, N_TOKENS_PER_CONCEPT, CoreLCMConfig, device_type
 from src.model.lower_lcm import Lower_LCM
-from src.train.train_config import TrainerConfig, setup_ddp
+from src.train.train_config import TrainerConfig, setup_ddp, create_tensorboard_dir
 from src.train.data_loader import DataLoaderLite
 from src.benchmark.hellaswag_lcm import evaluate_lower_lcm
 # -----------------------------------------------------------------------------
 # simple launch:
 # python train_lcm.py
-# DDP launch for e.g. 4 GPUs:
-# torchrun --standalone --nproc_per_node=4 train_lcm.py
+# DDP launch for e.g. 8 GPUs:
+# torchrun --standalone --nproc_per_node=8 train_lcm.py
 
 # run the training loop
 from torch.distributed import destroy_process_group
@@ -94,7 +94,7 @@ class Trainer:
 
         # Initialize TensorBoard SummaryWriter
         if self.master_process:
-            self.writer = SummaryWriter(log_dir=os.path.join(self.log_dir, "tensorboard", str(time.datetime))) 
+            self.writer = SummaryWriter(log_dir=create_tensorboard_dir(self), filename_suffix=time.strftime('_%Y%m%d_%H%M%S'))
         else:
             self.writer = None
 

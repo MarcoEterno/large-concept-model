@@ -21,8 +21,8 @@ class CoreLCMConfig:
     n_tokens_per_concept: int = N_TOKENS_PER_CONCEPT  # number of tokens per concept
     block_size: int = 1024 // N_TOKENS_PER_CONCEPT  # max sequence length in concept space
     vocab_size: int = 50257  # number of tokens: 50,000 BPE merges + 256 bytes tokens + 1 <|endoftext|> token
-    n_layer: int = 12  # number of layers
-    n_head: int = 8  # number of heads (was 12 in GPT-2)
+    n_layer: int = 24  # number of layers
+    n_head: int = 16  # number of heads (was 12 in GPT-2)
     n_embd: int = 1024  # embedding dimension (was 768 in GPT-2)
 
 
