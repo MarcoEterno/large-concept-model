@@ -1,10 +1,12 @@
 import math
 
+
 from torch import nn
 from torch.nn import functional as F
 import torch
 
 from src.model.config import DecoderConfig, N_TOKENS_PER_CONCEPT
+decoderconfig = DecoderConfig()
 
 
 class MinimalCausalConceptAttention(nn.Module):
@@ -185,7 +187,7 @@ def create_token_to_concept_mask(n_tokens_per_concept, n_tokens, n_concepts, dev
     """
     i_indices = torch.arange(n_tokens, device=device).unsqueeze(1)  # Shape: (T, 1)
     j_indices = torch.arange(n_concepts, device=device).unsqueeze(0)  # Shape: (1, C)
-    mask = (j_indices < i_indices // n_tokens_per_concept + 1).bool()  # Shape: (T, C)
+    mask = (j_indices <= i_indices // n_tokens_per_concept + decoderconfig.n_future_concepts_seen).bool()  # Shape: (T, C)
     return mask
 
 
@@ -212,9 +214,9 @@ def create_concept_to_token_mask(n_tokens_per_concept, n_concepts, n_tokens, dev
 if __name__ == '__main__':
     def test_create_causal_attention_mask():
         B = 1
-        num_tokens = 10
-        num_concepts = 3
-        n_tokens_per_concept = 4
+        num_tokens = 12
+        num_concepts = 10
+        n_tokens_per_concept = 2
         device = 'mps' if torch.backends.mps.is_built() else 'cuda' if torch.cuda.is_available() else 'cpu'
         mask_tc = create_token_to_concept_mask(n_tokens_per_concept, num_tokens, num_concepts, device)
         mask_ct = create_token_to_concept_mask(n_tokens_per_concept, n_tokens=num_tokens, n_concepts=num_concepts,
@@ -232,7 +234,7 @@ if __name__ == '__main__':
         # set a seed for reproducibility
         torch.manual_seed(42)
 
-        block = GeneralBlock(config).to(device)
+        block = MinimalBlock(config).to(device)
         xt = torch.randn(1, 20, config.n_embd, device=device)
         xc = torch.randn(1, 10, config.concept_embedding_dim, device=device)
         xt, xc = block(xt, xc)
@@ -255,7 +257,7 @@ if __name__ == '__main__':
 
         # set a seed for reproducibility
         torch.manual_seed(42)
-        block = GeneralBlock(config).to(device)
+        block = MinimalBlock(config).to(device)
         torch.manual_seed(42)
         gpt_block = GPTBlock(config).to(device)
         x = torch.randn(1, 10, config.n_embd).to(device)
@@ -281,7 +283,7 @@ if __name__ == '__main__':
 
         # set a seed for reproducibility
         torch.manual_seed(42)
-        block = GeneralBlock(config).to(device)
+        block = MinimalBlock(config).to(device)
         x = torch.randn(1, 10, config.n_embd, device=device)
         x = block(x)
         # time the block function
@@ -303,7 +305,7 @@ if __name__ == '__main__':
         # set a seed for reproducibility
         torch.manual_seed(42)
 
-        block = GeneralBlock(config).to(device)
+        block = MinimalBlock(config).to(device)
         xt = torch.randn(1, 10, config.n_embd, device=device)
         xc = torch.randn(1, 10, config.concept_embedding_dim, device=device)
         xt, xc = block(xt, xc)
@@ -315,4 +317,4 @@ if __name__ == '__main__':
         print(xt.shape, xc.shape)
 
 
-    test_attention()
+    test_create_causal_attention_mask()
