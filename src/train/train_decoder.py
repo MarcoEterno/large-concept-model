@@ -15,13 +15,13 @@ from torch.utils.tensorboard import SummaryWriter
 
 from src.model.config import DecoderConfig, DEVICE
 from src.model.decoder.decoder import Decoder
-from src.train.data_loader import DataLoaderWithConcepts
+from src.train.data_preparation.data_loader import DataLoaderWithConcepts
 from src.train.train_config import TrainerConfig, setup_ddp, create_log_file_and_dir, create_tensorboard_dir
 
 # -----------------------------------------------------------------------------
 # simple launch:
 # python train_lcm.py
-# DDP launch for e.g. 4 GPUs:
+# DDP launch for e.g. 8 GPUs:
 # torchrun --standalone --nproc_per_node=8 train_decoder.py
 # python -m cProfile -o output.prof train_gpt.py
 
@@ -105,7 +105,6 @@ class Trainer:
         self.checkpoint_freq = config.checkpoint_freq
 
     def get_lr(self, it):
-        return 1e-4 # TODO: remove this hardcoding for training from scratch
         # 1) linear warmup for warmup_iters steps
         if it < self.warmup_steps:
             return self.max_lr * (it + 1) / self.warmup_steps
@@ -263,16 +262,24 @@ class Trainer:
 
 
 if __name__ == "__main__":
-    device = DEVICE
-    model = Decoder(DecoderConfig())
-    checkpoint_path = "/home/marco.eterno/large-concept-model/data/logs/2024-10-06_21-55-06/decoder_ntc-8_nlayer-12_nhead-16_n_embd-768-concept_dim1024step-19072.pt"
-    print(checkpoint_path)
-    model.load_checkpoint(checkpoint_path, device=device)
-    model.to(device)
+    train_from_checkpoint = False
 
-    checkpoint = torch.load(checkpoint_path)
-    optimizer_state = checkpoint['optimizer']
-    optimizer = model.configure_optimizers(weight_decay=0.1, learning_rate=1e-4, device_type=device)
-    optimizer.load_state_dict(optimizer_state)
-    trainer = Trainer(model, TrainerConfig(), optimizer = optimizer)
-    trainer.run()
+    if train_from_checkpoint:
+        device = DEVICE
+        model = Decoder(DecoderConfig())
+        checkpoint_path = "/home/marco.eterno/large-concept-model/data/logs/2024-10-06_21-55-06/decoder_ntc-8_nlayer-12_nhead-16_n_embd-768-concept_dim1024step-19072.pt"
+        print(checkpoint_path)
+        model.load_checkpoint(checkpoint_path, device=device)
+        model.to(device)
+
+        checkpoint = torch.load(checkpoint_path)
+        optimizer_state = checkpoint['optimizer']
+        optimizer = model.configure_optimizers(weight_decay=0.1, learning_rate=1e-4, device_type=device)
+        optimizer.load_state_dict(optimizer_state)
+        trainer = Trainer(model, TrainerConfig(), optimizer = optimizer)
+        trainer.run()
+
+    else:
+        model = Decoder(DecoderConfig())
+        trainer = Trainer(model, TrainerConfig())
+        trainer.run()

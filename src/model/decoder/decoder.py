@@ -5,7 +5,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 from transformers import GPT2Tokenizer
 
-from src.model.kernel.block_kernel import GeneralBlock
+from src.model.kernel.minimal_lcm_kernel import MinimalBlock
 from src.model.config import DecoderConfig
 from src.model.encoder.encoder import Encoder
 
@@ -48,7 +48,7 @@ class Decoder(nn.Module):
             wpe=nn.Embedding(config.block_size, config.n_embd),  # only 8/9 of the block will be made of tokens
             cpe=nn.Embedding(config.block_size, config.concept_embedding_dim),
             # only 1/9 of the block will be made of concepts
-            h=nn.ModuleList([GeneralBlock(config) for _ in range(config.n_layer)]),
+            h=nn.ModuleList([MinimalBlock(config) for _ in range(config.n_layer)]),
             ln_t=nn.LayerNorm(config.n_embd)
         ))
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)

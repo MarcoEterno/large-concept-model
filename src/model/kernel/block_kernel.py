@@ -453,7 +453,7 @@ if __name__ == '__main__':
         # set a seed for reproducibility
         torch.manual_seed(42)
 
-        block = GeneralBlock(config).to(device)
+        block = MinimalBlock(config).to(device)
         xt = torch.randn(1, 10, config.n_embd, device=device)
         xc = torch.randn(1, 10, config.concept_embedding_dim, device=device)
         xt, xc = block(xt, xc)
