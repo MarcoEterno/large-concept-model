@@ -24,7 +24,7 @@ class TrainerConfig:
     eval_model_inference_freq: int = 200000
 
 
-    checkpoint_freq: int= 1
+    checkpoint_freq: int = 400
 
     max_lr: float = 6e-4 # 6e-4 is the default for GPT-2
     min_lr: float = max_lr*0.1 # * 0.1 #TODO: change to 0,1*max when starting from scratch
