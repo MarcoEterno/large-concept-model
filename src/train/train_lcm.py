@@ -9,7 +9,7 @@ from torch.utils.tensorboard import SummaryWriter
 from src.model.config import CoreLCMConfig
 from src.model.core.lower_lcm import Lower_LCM
 from src.train.train_config import TrainerConfig, setup_ddp, create_tensorboard_dir
-from src.train.data_loader import DataLoaderLite
+from src.train.data_preparation.data_loader import DataLoaderLite
 # -----------------------------------------------------------------------------
 # simple launch:
 # python train_lcm.py
