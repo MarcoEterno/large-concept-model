@@ -220,10 +220,24 @@ class Decoder(nn.Module):
         optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=(0.9, 0.95), eps=1e-8, fused=use_fused)
         return optimizer
 
-    def load_checkpoint(self, checkpoint_path, device):
-        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
-        self.load_state_dict(checkpoint['model'])
+    def load_checkpoint(self, checkpoint_path, device='cpu', load_from_compiled_model=False):
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+        state_dict = checkpoint['model']
+
+        if load_from_compiled_model:
+            # Remove '_orig_mod.' prefix from keys
+            new_state_dict = {}
+            for k, v in state_dict.items():
+                if k.startswith('_orig_mod.'):
+                    new_key = k[len('_orig_mod.'):]  # Remove the prefix
+                    new_state_dict[new_key] = v
+                else:
+                    new_state_dict[k] = v
+        else:
+            new_state_dict = state_dict
+        self.load_state_dict(new_state_dict)
         self.eval()
+        print(f"Model loaded from {checkpoint_path}")
         return self
 
 
@@ -278,9 +292,7 @@ if __name__ == "__main__":
         model = Decoder(DecoderConfig())
         checkpoint_path = "/Users/marcoeterno/Desktop/Coding/large-concept-model/data/checkpoints/decoder_future-8_ntc-8_nlayer-24_nhead-16_n_embd-768-concept_dim1024step-10800.pt"
         print(checkpoint_path)
-        checkpoint = torch.load(checkpoint_path, map_location=device)
-        model.load_state_dict(checkpoint['model'])
-        model.eval()
+        model.load_checkpoint(checkpoint_path, device=device)
         print(model)
 
         encoder = Encoder(n_tokens_per_concept=8).to(device)
@@ -291,16 +303,16 @@ The term non-steroidal, common from around 1960, distinguishes these drugs from 
 """
         beginning_text1 = "Non-steroidal anti-inflammatory drugs are members of a therapeutic drug class which reduces pain,"
 
-        tex2t = """In computability theory, the halting problem is the problem of determining, from a description of an arbitrary computer program and an input, whether the program will finish running, or continue to run forever. The halting problem is undecidable, meaning that no general algorithm exists that solves the halting problem for all possible program–input pairs. The problem comes up often in discussions of computability since it demonstrates that some functions are mathematically definable but not computable.
+        text2 = """In computability theory, the halting problem is the problem of determining, from a description of an arbitrary computer program and an input, whether the program will finish running, or continue to run forever. The halting problem is undecidable, meaning that no general algorithm exists that solves the halting problem for all possible program–input pairs. The problem comes up often in discussions of computability since it demonstrates that some functions are mathematically definable but not computable.
 
 A key part of the formal statement of the problem is a mathematical definition of a computer and program, usually via a Turing machine. The proof then shows, for any program f that might determine whether programs halt, that a "pathological" program g exists for which f makes an incorrect determination. Specifically, g is the program that, when called with some input, passes its own source and its input to f and does the opposite of what f predicts g will do. The behavior of f on g shows undecidability as it means no program f will solve the halting problem in every possible case.
 
 """
         beginning_text2 = "In computability theory, the halting problem is the problem of determining, from a description of an arbitrary computer program and an input, whether"
 
-        xt = model.tokenizer.encode(beginning_text1, return_tensors='pt').to(device)
+        xt = model.tokenizer.encode(beginning_text2, return_tensors='pt').to(device)
 
-        xc = encoder.encode_text(text1 , encode_in_single_concept=False) # size (1, 8, 1024)
+        xc = encoder.encode_text(text2 , encode_in_single_concept=False) # size (1, 8, 1024)
         xt = model.generate(xt, xc=xc, max_len=100, temperature=0.1, top_k=1, top_p=0.0, device=device,
                        print_to_video=True)
         print(model.tokenizer.decode(xt.squeeze(0, 1)))
