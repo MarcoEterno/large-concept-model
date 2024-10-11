@@ -1,5 +1,5 @@
 import math
-
+import time
 
 from torch import nn
 from torch.nn import functional as F
@@ -146,29 +146,23 @@ class MinimalBlock(nn.Module):
         # xc = xc + mlp_xc
         return xt, xc
 
+def get_random_value(change_interval_minutes=1.0, start_epoch=0, last_value = decoderconfig.n_future_concepts_seen):
+    # Total number of possible values
+    total_values = start_epoch + last_value
 
-def create_causal_attention_mask(B, n_tokens_per_concept, n_rows, n_cols, device):
-    """
-    Create a causal attention mask for the given dimensions.
+    # Current Unix time in seconds
+    current_time = int(time.time())
 
-    Args:
-        B: Batch size
-        n_tokens_per_concept: Number of tokens per concept
-        n_rows: Number of rows
-        n_cols: Number of columns
-        device: Device to use
+    # Calculate the duration of each interval in seconds
+    change_interval_seconds = int(change_interval_minutes * 60)
 
-    Returns:
-        T: torch.tensor: Causal attention mask of shape (n_rows, n_cols)
-    """
+    # Calculate how many complete intervals have passed since start_epoch
+    elapsed_intervals = (current_time - start_epoch) // change_interval_seconds
 
-    # Precompute index tensors if I and J are constant
-    i_indices = torch.arange(n_rows, dtype=torch.int32, device=device).unsqueeze(1)  # Shape: (I, 1)
-    j_indices = torch.arange(n_cols, dtype=torch.int32, device=device).unsqueeze(0)  # Shape: (1, J)
+    # Determine the current value by cycling through 0 to 16
+    current_value = elapsed_intervals % total_values
 
-    T = (i_indices < n_tokens_per_concept * (j_indices + 1)).bool()
-
-    return T  # .unsqueeze(0).expand(B, -1, -1)
+    return current_value
 
 
 def create_token_to_concept_mask(n_tokens_per_concept, n_tokens, n_concepts, device):
@@ -185,9 +179,12 @@ def create_token_to_concept_mask(n_tokens_per_concept, n_tokens, n_concepts, dev
     Returns:
         mask: torch.tensor of shape (T, C)
     """
+
+    # we need to
+
     i_indices = torch.arange(n_tokens, device=device).unsqueeze(1)  # Shape: (T, 1)
     j_indices = torch.arange(n_concepts, device=device).unsqueeze(0)  # Shape: (1, C)
-    mask = (j_indices <= i_indices // n_tokens_per_concept + decoderconfig.n_future_concepts_seen).bool()  # Shape: (T, C)
+    mask = (j_indices <= i_indices // n_tokens_per_concept + get_random_value(change_interval_minutes=1, start_epoch=0, last_value = decoderconfig.n_future_concepts_seen)).bool()  # Shape: (T, C) # randomizing n_concepts seen by the model makes it more robust
     return mask
 
 
@@ -316,5 +313,16 @@ if __name__ == '__main__':
         print(profiler.key_averages().table(sort_by="self_cpu_time_total"))
         print(xt.shape, xc.shape)
 
+    def test_get_random_value():
+        print(get_random_value(change_interval_minutes=1/60, start_epoch=0, last_value = decoderconfig.n_future_concepts_seen))
+        #make the system wait two seconds:
+        time.sleep(2)
+        print(get_random_value(change_interval_minutes=1/60, start_epoch=0, last_value=decoderconfig.n_future_concepts_seen))
+        time.sleep(10)
+        print(get_random_value(change_interval_minutes=1 / 60, start_epoch=0,
+                               last_value=decoderconfig.n_future_concepts_seen))
 
-    test_create_causal_attention_mask()
+
+
+    test_get_random_value()
+

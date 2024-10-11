@@ -4,7 +4,7 @@ import time
 
 import torch
 
-# export PYTHONPATH=/home/marco.eterno/large-concept-model
+
 
 # distributed computing imports
 from torch.distributed import destroy_process_group
@@ -23,7 +23,12 @@ from src.train.train_config import TrainerConfig, setup_ddp, create_log_file_and
 # python train_lcm.py
 # DDP launch for e.g. 8 GPUs:
 # torchrun --standalone --nproc_per_node=8 train_decoder.py
+# -----------------------------------------------------------------------------
+# profiling:
 # python -m cProfile -o output.prof train_gpt.py
+# snakeviz output.prof
+# -----------------------------------------------------------------------------
+# export PYTHONPATH=/home/marco.eterno/large-concept-model
 
 
 # importing this class seems to take a lot of time
