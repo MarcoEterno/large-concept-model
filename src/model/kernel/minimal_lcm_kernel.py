@@ -184,7 +184,7 @@ def create_token_to_concept_mask(n_tokens_per_concept, n_tokens, n_concepts, dev
 
     i_indices = torch.arange(n_tokens, device=device).unsqueeze(1)  # Shape: (T, 1)
     j_indices = torch.arange(n_concepts, device=device).unsqueeze(0)  # Shape: (1, C)
-    mask = (j_indices <= i_indices // n_tokens_per_concept + get_random_value(change_interval_minutes=1, start_epoch=0, last_value = decoderconfig.n_future_concepts_seen)).bool()  # Shape: (T, C) # randomizing n_concepts seen by the model makes it more robust
+    mask = (j_indices < i_indices // n_tokens_per_concept + get_random_value(change_interval_minutes=1, start_epoch=0, last_value = decoderconfig.n_future_concepts_seen)).bool()  # Shape: (T, C) # randomizing n_concepts seen by the model makes it more robust
     return mask
 
 

@@ -35,7 +35,7 @@ class DecoderConfig:
     n_head: int = 16  # number of heads. ATTENTION: THIS NUMBER MUST DIVIDE BOTH N_EMBD AND CONCEPT EMBEDDING DIMENSION
     n_embd: int = 768  # embedding dimension
     concept_embedding_dim: int = 1024  # embedding dimension for concepts
-    n_future_concepts_seen = 16  # number of future concepts seen by the decoder
+    n_future_concepts_seen = 8  # number of future concepts seen by the decoder
 
 
 @dataclass
